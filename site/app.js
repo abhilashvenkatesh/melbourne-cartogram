@@ -36,11 +36,11 @@ const EMOJI_BURST_PER_TICK = 3;
 const EMOJI_BURST_LIFETIME_MS = 900;
 const MOBILE_DRAWER_SWIPE_THRESHOLD_PX = 36;
 const METERS_PER_MINUTE_PER_MPH = 26.8224;
-const SETTINGS_STORAGE_KEY = "nyc-cartogram-settings-v1";
+const SETTINGS_STORAGE_KEY = "mel-cartogram-settings-v1";
 
 const EMOJI_BURST_SETS = {
   github: ["💻", "🖥️", "⌨️", "⚙️", "🧑‍💻"],
-  nyc: ["🗽", "🌆", "🏙️", "🚕", "🍎"],
+  mel: ["🦘", "🌆", "🏙️", "🚃", "☕"],
   transit: ["🚇", "🚉", "🚊", "🚦", "🛤️"],
   maps: ["🗺️", "📍", "🧭", "➡️", "📌"],
   parks: ["🌳", "🌲", "🌿", "🍃", "🌱"],
@@ -812,7 +812,7 @@ function getShareUrl() {
 }
 
 function getShareText() {
-  return "Explore New York City by subway commute time with this interactive transit cartogram.";
+  return "Explore Melbourne by transit commute time with this interactive cartogram.";
 }
 
 function escapeHtml(value) {
@@ -1337,12 +1337,46 @@ function nearestStations(point, count) {
     .slice(0, count);
 }
 
+class MinHeap {
+  constructor() { this._h = []; }
+  get size() { return this._h.length; }
+  push(dist, idx) {
+    this._h.push([dist, idx]);
+    this._siftUp(this._h.length - 1);
+  }
+  pop() {
+    const top = this._h[0];
+    const last = this._h.pop();
+    if (this._h.length > 0) { this._h[0] = last; this._siftDown(0); }
+    return top;
+  }
+  _siftUp(i) {
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (this._h[p][0] <= this._h[i][0]) break;
+      [this._h[p], this._h[i]] = [this._h[i], this._h[p]];
+      i = p;
+    }
+  }
+  _siftDown(i) {
+    const n = this._h.length;
+    for (;;) {
+      let s = i, l = 2 * i + 1, r = l + 1;
+      if (l < n && this._h[l][0] < this._h[s][0]) s = l;
+      if (r < n && this._h[r][0] < this._h[s][0]) s = r;
+      if (s === i) break;
+      [this._h[s], this._h[i]] = [this._h[i], this._h[s]];
+      i = s;
+    }
+  }
+}
+
 function runDijkstra(origin) {
   const settings = currentTravelSettings();
   const stateCount = state.data.routeStates.length;
-  const distances = new Array(stateCount).fill(Infinity);
-  const visited = new Array(stateCount).fill(false);
+  const distances = new Float64Array(stateCount).fill(Infinity);
   const seeds = nearestStations(origin.point, state.data.meta.originStationCount);
+  const heap = new MinHeap();
 
   for (const seed of seeds) {
     for (const routeStateIndex of state.data.stationStates[seed.index] || []) {
@@ -1350,24 +1384,17 @@ function runDijkstra(origin) {
       const boardingDelta =
         (state.data.routeWaits?.[routeId] ?? state.travelSettingsDefaults.transitTime) -
         state.travelSettingsDefaults.transitTime;
-      distances[routeStateIndex] = Math.min(
-        distances[routeStateIndex],
-        origin.swimMinutes + seed.walkMinutes + settings.transitTime + boardingDelta,
-      );
+      const dist = origin.swimMinutes + seed.walkMinutes + settings.transitTime + boardingDelta;
+      if (dist < distances[routeStateIndex]) {
+        distances[routeStateIndex] = dist;
+        heap.push(dist, routeStateIndex);
+      }
     }
   }
 
-  for (let step = 0; step < stateCount; step += 1) {
-    let current = -1;
-    let best = Infinity;
-    for (let index = 0; index < stateCount; index += 1) {
-      if (!visited[index] && distances[index] < best) {
-        best = distances[index];
-        current = index;
-      }
-    }
-    if (current === -1) break;
-    visited[current] = true;
+  while (heap.size > 0) {
+    const [dist, current] = heap.pop();
+    if (dist > distances[current]) continue;
     for (const edge of state.dynamicAdjacency[current]) {
       const weight =
         edge.kind === "ride"
@@ -1381,7 +1408,10 @@ function runDijkstra(origin) {
               edge.boardingDelta;
       const nextIndex = edge.toIndex;
       const candidate = distances[current] + weight;
-      if (candidate < distances[nextIndex]) distances[nextIndex] = candidate;
+      if (candidate < distances[nextIndex]) {
+        distances[nextIndex] = candidate;
+        heap.push(candidate, nextIndex);
+      }
     }
   }
 
@@ -1434,10 +1464,10 @@ function syncReachabilityScore(summary = null) {
   if (!summary) {
     reachScoreCard.hidden = true;
     reachScoreValue.textContent = "-- / --";
-    reachScoreMeta.textContent = "Choose an origin to see how much of the subway you can reach in an hour.";
+    reachScoreMeta.textContent = "Choose an origin to see how much of Melbourne you can reach in an hour.";
     if (mobileReachValue && mobileReachMeta) {
       mobileReachValue.textContent = "-- / --";
-      mobileReachMeta.textContent = "Choose an origin to see how much of the subway you can reach in an hour.";
+      mobileReachMeta.textContent = "Choose an origin to see how much of Melbourne you can reach in an hour.";
     }
     return;
   }
@@ -1957,7 +1987,7 @@ function drawMap(drawCtx, width, height) {
   if (state.originPoint) {
     const originScreen = projectPoint(state.originPoint);
     drawMarker(drawCtx, originScreen, "#d75c2e", 24, 5.5);
-    drawPinnedLabel(drawCtx, originScreen, currentOriginSummary(station?.name ?? "NYC subway"));
+    drawPinnedLabel(drawCtx, originScreen, currentOriginSummary(station?.name ?? "Melbourne transit"));
   } else if (state.cursorScreen) {
     drawMarker(drawCtx, state.cursorScreen, "#d75c2e", 24, 5.5);
   }
@@ -2093,7 +2123,7 @@ function roundRectPath(drawCtx, x, y, width, height, radius) {
   drawCtx.roundRect(x, y, width, height, radius);
 }
 
-function currentOriginSummary(fallbackStationName = "NYC subway") {
+function currentOriginSummary(fallbackStationName = "Melbourne transit") {
   if (state.originLabel) return shortOriginLabel(state.originLabel);
   return `Near ${fallbackStationName}`;
 }
@@ -2128,7 +2158,7 @@ function exportShareImage() {
   exportCtx.fillText("New York City", 72, 146);
 
   const nearestSeed = state.currentRender?.warp?.seeds?.[0];
-  const nearestStationName = nearestSeed ? state.data.stations[nearestSeed.index].name : "NYC subway";
+  const nearestStationName = nearestSeed ? state.data.stations[nearestSeed.index].name : "Melbourne transit";
   const normalizedOrigin = state.originPoint ? normalizeTravelPoint(state.originPoint) : null;
   const probeMeasurement = state.probePoint
     ? measureProbeFromWarp(normalizedOrigin, state.currentRender?.warp ?? null, state.probePoint)
@@ -2265,12 +2295,12 @@ function exportShareImage() {
 
   exportCtx.fillStyle = "#17304d";
   exportCtx.font = '700 24px "Avenir Next", "Helvetica Neue", Helvetica, sans-serif';
-  exportCtx.fillText("castrio.me/nyc", 72, 1202);
+  exportCtx.fillText("castrio.me/melbourne", 72, 1202);
 
   exportCtx.textAlign = "right";
   exportCtx.fillStyle = "#5f6f7f";
   exportCtx.font = '500 12px "Avenir Next", "Helvetica Neue", Helvetica, sans-serif';
-  exportCtx.fillText("Data: MTA GTFS, NYC Open Data, OpenStreetMap", 1008, 1202);
+  exportCtx.fillText("Data: PTV GTFS, OpenStreetMap", 1008, 1202);
   exportCtx.textAlign = "left";
 
   return exportCanvas;
@@ -2287,7 +2317,7 @@ async function downloadShareImage() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `nyc-commute-cartogram-${Date.now()}.png`;
+    link.download = `melbourne-commute-cartogram-${Date.now()}.png`;
     link.click();
     URL.revokeObjectURL(url);
   } finally {
@@ -2705,7 +2735,7 @@ function syncMobileSheet() {
 function renderSearchResults(results) {
   clearSearchResults();
   if (!results.length) {
-    setSearchMetaText("No NYC address matches found.");
+    setSearchMetaText("No Melbourne address matches found.");
     return;
   }
   setSearchMetaText("Choose a result to pin the origin there.");
@@ -2727,7 +2757,7 @@ function renderSearchResults(results) {
         const result = results[Number(button.dataset.resultIndex)];
         const worldPoint = lonLatToWorld(result.lon, result.lat);
         if (!withinBounds(worldPoint)) {
-          setSearchMetaText("That result fell outside the current NYC map bounds.");
+          setSearchMetaText("That result fell outside the current Melbourne map bounds.");
           return;
         }
         setAddressInputs(result.title);
@@ -2751,10 +2781,10 @@ async function searchAddress(query) {
     q: `${query}, New York City`,
     format: "jsonv2",
     addressdetails: "1",
-    countrycodes: "us",
+    countrycodes: "au",
     limit: "5",
     bounded: "1",
-    viewbox: "-74.30,40.95,-73.65,40.45",
+    viewbox: "144.50,-38.20,145.60,-37.55",
   });
   const response = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, {
     headers: {
@@ -2794,7 +2824,7 @@ function useCurrentLocation() {
       setLocateButtonsBusy(false);
       const worldPoint = lonLatToWorld(position.coords.longitude, position.coords.latitude);
       if (!withinBounds(worldPoint)) {
-        setSearchMetaText("That location falls outside the current NYC map bounds.");
+        setSearchMetaText("That location falls outside the current Melbourne map bounds.");
         return;
       }
       state.originLabel = "My location";
@@ -2824,7 +2854,7 @@ async function init() {
   state.baseMapCache = null;
   state.ready = true;
 
-  const manhattan = state.data.boroughs.find((borough) => borough.name === "Manhattan");
+  const manhattan = state.data.boroughs.find((borough) => borough.name === "Melbourne");
   state.cursorPoint = null;
   state.originPoint = null;
 
@@ -3130,13 +3160,13 @@ async function init() {
       event.preventDefault();
       const query = ui.input.value.trim();
       if (!query) {
-        setSearchMetaText("Enter an NYC address to search.");
+        setSearchMetaText("Enter a Melbourne address to search.");
         clearSearchResults();
         return;
       }
 
       setSearchBusy(true);
-      setSearchMetaText("Looking up NYC address matches…");
+      setSearchMetaText("Looking up Melbourne address matches…");
       clearSearchResults();
 
       try {
@@ -3144,7 +3174,7 @@ async function init() {
         renderSearchResults(results);
       } catch (error) {
         console.error(error);
-        setSearchMetaText("Address lookup failed. Try a more specific NYC address.");
+        setSearchMetaText("Address lookup failed. Try a more specific Melbourne address.");
       } finally {
         setSearchBusy(false);
       }
