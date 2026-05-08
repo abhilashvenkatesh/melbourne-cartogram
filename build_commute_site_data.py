@@ -17,6 +17,8 @@ from xml.etree import ElementTree as ET
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 SITE_DATA_PATH = ROOT / "site" / "data" / "commute_map_data.json"
+SITE_RENDER_PATH = ROOT / "site" / "data" / "map_render.json"
+SITE_COMPUTE_PATH = ROOT / "site" / "data" / "map_compute.json"
 
 BOROUGHS_PATH = DATA_DIR / "borough_boundaries.geojson"
 PARKS_PATH = DATA_DIR / "parks_open_space.geojson"
@@ -779,6 +781,16 @@ def main() -> None:
 
     SITE_DATA_PATH.write_text(json.dumps(output, separators=(",", ":")), encoding="utf-8")
     print(f"Wrote {SITE_DATA_PATH}")
+
+    # Split output: render data loads first (shows basemap), compute data loads in background
+    render_keys = {"meta", "boroughs", "externalLand", "parks", "streets", "routes", "stations", "routeStyles"}
+    compute_keys = {"routeStates", "stationStates", "routeWaits", "adjacency", "cells", "mask"}
+    render_output = {k: v for k, v in output.items() if k in render_keys}
+    compute_output = {k: v for k, v in output.items() if k in compute_keys}
+    SITE_RENDER_PATH.write_text(json.dumps(render_output, separators=(",", ":")), encoding="utf-8")
+    SITE_COMPUTE_PATH.write_text(json.dumps(compute_output, separators=(",", ":")), encoding="utf-8")
+    print(f"Wrote {SITE_RENDER_PATH} ({SITE_RENDER_PATH.stat().st_size // 1024}KB)")
+    print(f"Wrote {SITE_COMPUTE_PATH} ({SITE_COMPUTE_PATH.stat().st_size // 1024}KB)")
 
 
 if __name__ == "__main__":

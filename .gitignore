@@ -12,8 +12,9 @@ __pycache__/
 venv/
 env/
 output/
+data/
 site/data/
-.DS_Store
+.vercel/
 
 *.swp
 *.swo

@@ -1,4 +1,7 @@
 const DATA_URL = new URL("./data/commute_map_data.json", import.meta.url).toString();
+const RENDER_DATA_URL = new URL("./data/map_render.json", import.meta.url).toString();
+const COMPUTE_DATA_URL = new URL("./data/map_compute.json", import.meta.url).toString();
+const WORKER_URL = new URL("./compute-worker.js", import.meta.url).toString();
 const DEFAULT_TRANSIT_TIME_MINUTES = 4;
 const DEFAULT_MAX_TIME_MINUTES = 60;
 const MIN_AREA_WEIGHT = 1;
@@ -85,6 +88,12 @@ const state = {
   travelSettings: null,
   travelSettingsDefaults: null,
   dynamicAdjacency: null,
+  warpCache: null,
+  stationIndex: null,
+  computeWorker: null,
+  workerReady: false,
+  workerPending: false,
+  workerPendingKey: null,
   dirty: true,
 };
 
@@ -295,6 +304,10 @@ function syncTravelSettingsInputs() {
 
 function applyTravelSettings(nextSettings, { persist = true } = {}) {
   state.travelSettings = sanitizeTravelSettings(nextSettings);
+  state.warpCache = null;
+  if (state.workerReady) {
+    state.computeWorker.postMessage({ type: "updateSettings", travelSettings: state.travelSettings });
+  }
   syncTravelSettingsInputs();
   syncHeatmapLegend();
   if (persist) persistTravelSettings();
@@ -1281,142 +1294,70 @@ function drawWarpedBaseMap(drawCtx, width, height, warp, sourceTransform, destin
   drawCtx.restore();
 }
 
-function buildDynamicAdjacency() {
-  const defaults = state.travelSettingsDefaults || getTravelSettingsDefaults();
-  const routeStates = state.data.routeStates;
-  const stations = state.data.stations;
 
-  return state.data.adjacency.map((edges, fromIndex) => {
-    const fromState = routeStates[fromIndex];
-    return edges.map(([toIndex, weight]) => {
-      const toState = routeStates[toIndex];
-      const boardingDelta =
-        (state.data.routeWaits?.[toState.routeId] ?? defaults.transitTime) - defaults.transitTime;
-      if (fromState.routeId === toState.routeId) {
-        return { toIndex, kind: "ride", rideMinutes: weight };
-      }
+const STATION_GRID_CELLS = 80;
 
-      if (fromState.stationIndex === toState.stationIndex) {
-        return { toIndex, kind: "transfer", boardingDelta };
-      }
+function buildStationSpatialIndex() {
+  const [minX, minY, maxX, maxY] = state.data.meta.bounds;
+  const cellW = (maxX - minX) / STATION_GRID_CELLS;
+  const cellH = (maxY - minY) / STATION_GRID_CELLS;
+  const grid = Array.from({ length: STATION_GRID_CELLS * STATION_GRID_CELLS }, () => []);
 
-      const fromPoint = stations[fromState.stationIndex].point;
-      const toPoint = stations[toState.stationIndex].point;
-      const walkDistance = distance(fromPoint, toPoint);
-      const walkPenalty = Math.max(
-        0,
-        weight -
-          walkDistance / defaults.walkingSpeed -
-          boardingDelta -
-          defaults.transitTime -
-          (state.data.meta.interComplexTransferPenalty ?? defaults.transferTime),
-      );
-
-      return {
-        toIndex,
-        kind: "interchange",
-        boardingDelta,
-        walkDistance,
-        walkPenalty,
-      };
-    });
-  });
+  for (let i = 0; i < state.data.stations.length; i++) {
+    const [x, y] = state.data.stations[i].point;
+    const col = Math.min(STATION_GRID_CELLS - 1, Math.max(0, Math.floor((x - minX) / cellW)));
+    const row = Math.min(STATION_GRID_CELLS - 1, Math.max(0, Math.floor((y - minY) / cellH)));
+    grid[row * STATION_GRID_CELLS + col].push(i);
+  }
+  return { grid, cellW, cellH, minX, minY };
 }
 
 function nearestStations(point, count) {
   const settings = currentTravelSettings();
-  return state.data.stations
-    .map((station, index) => ({
-      index,
-      name: station.name,
-      walkMinutes:
-        distance(point, station.point) / settings.walkingSpeed +
-        state.data.meta.stationAccessPenalty,
-    }))
-    .sort((a, b) => a.walkMinutes - b.walkMinutes)
-    .slice(0, count);
-}
+  const accessPenalty = state.data.meta.stationAccessPenalty;
 
-class MinHeap {
-  constructor() { this._h = []; }
-  get size() { return this._h.length; }
-  push(dist, idx) {
-    this._h.push([dist, idx]);
-    this._siftUp(this._h.length - 1);
+  if (!state.stationIndex) {
+    // Fallback: full scan (before index is built)
+    return state.data.stations
+      .map((station, index) => ({
+        index,
+        name: station.name,
+        walkMinutes: distance(point, station.point) / settings.walkingSpeed + accessPenalty,
+      }))
+      .sort((a, b) => a.walkMinutes - b.walkMinutes)
+      .slice(0, count);
   }
-  pop() {
-    const top = this._h[0];
-    const last = this._h.pop();
-    if (this._h.length > 0) { this._h[0] = last; this._siftDown(0); }
-    return top;
-  }
-  _siftUp(i) {
-    while (i > 0) {
-      const p = (i - 1) >> 1;
-      if (this._h[p][0] <= this._h[i][0]) break;
-      [this._h[p], this._h[i]] = [this._h[i], this._h[p]];
-      i = p;
-    }
-  }
-  _siftDown(i) {
-    const n = this._h.length;
-    for (;;) {
-      let s = i, l = 2 * i + 1, r = l + 1;
-      if (l < n && this._h[l][0] < this._h[s][0]) s = l;
-      if (r < n && this._h[r][0] < this._h[s][0]) s = r;
-      if (s === i) break;
-      [this._h[s], this._h[i]] = [this._h[i], this._h[s]];
-      i = s;
-    }
-  }
-}
 
-function runDijkstra(origin) {
-  const settings = currentTravelSettings();
-  const stateCount = state.data.routeStates.length;
-  const distances = new Float64Array(stateCount).fill(Infinity);
-  const seeds = nearestStations(origin.point, state.data.meta.originStationCount);
-  const heap = new MinHeap();
+  const { grid, cellW, cellH, minX, minY } = state.stationIndex;
+  const [px, py] = point;
+  const startCol = Math.min(STATION_GRID_CELLS - 1, Math.max(0, Math.floor((px - minX) / cellW)));
+  const startRow = Math.min(STATION_GRID_CELLS - 1, Math.max(0, Math.floor((py - minY) / cellH)));
 
-  for (const seed of seeds) {
-    for (const routeStateIndex of state.data.stationStates[seed.index] || []) {
-      const routeId = state.data.routeStates[routeStateIndex].routeId;
-      const boardingDelta =
-        (state.data.routeWaits?.[routeId] ?? state.travelSettingsDefaults.transitTime) -
-        state.travelSettingsDefaults.transitTime;
-      const dist = origin.swimMinutes + seed.walkMinutes + settings.transitTime + boardingDelta;
-      if (dist < distances[routeStateIndex]) {
-        distances[routeStateIndex] = dist;
-        heap.push(dist, routeStateIndex);
+  const candidates = [];
+  // Expand ring radius until we have enough candidates and the ring's min distance > best-so-far
+  for (let radius = 0; radius <= STATION_GRID_CELLS; radius++) {
+    for (let dr = -radius; dr <= radius; dr++) {
+      for (let dc = -radius; dc <= radius; dc++) {
+        if (Math.abs(dr) !== radius && Math.abs(dc) !== radius) continue;
+        const r = startRow + dr;
+        const c = startCol + dc;
+        if (r < 0 || r >= STATION_GRID_CELLS || c < 0 || c >= STATION_GRID_CELLS) continue;
+        for (const idx of grid[r * STATION_GRID_CELLS + c]) {
+          const station = state.data.stations[idx];
+          candidates.push({
+            index: idx,
+            name: station.name,
+            walkMinutes: distance(point, station.point) / settings.walkingSpeed + accessPenalty,
+          });
+        }
       }
     }
+    if (candidates.length >= count) break;
   }
-
-  while (heap.size > 0) {
-    const [dist, current] = heap.pop();
-    if (dist > distances[current]) continue;
-    for (const edge of state.dynamicAdjacency[current]) {
-      const weight =
-        edge.kind === "ride"
-          ? edge.rideMinutes
-          : edge.kind === "transfer"
-            ? settings.transferTime + settings.transitTime + edge.boardingDelta
-            : edge.walkDistance / settings.walkingSpeed +
-              edge.walkPenalty +
-              settings.transferTime +
-              settings.transitTime +
-              edge.boardingDelta;
-      const nextIndex = edge.toIndex;
-      const candidate = distances[current] + weight;
-      if (candidate < distances[nextIndex]) {
-        distances[nextIndex] = candidate;
-        heap.push(candidate, nextIndex);
-      }
-    }
-  }
-
-  return { distances, seeds };
+  return candidates.sort((a, b) => a.walkMinutes - b.walkMinutes).slice(0, count);
 }
+
+// runDijkstra, MinHeap, buildDynamicAdjacency moved to compute-worker.js
 
 function estimateTravel(origin, originDistances, destinationPoint) {
   const settings = currentTravelSettings();
@@ -1442,23 +1383,7 @@ function estimateTravel(origin, originDistances, destinationPoint) {
   };
 }
 
-function summarizeReachability(origin, originDistances) {
-  const totalStations = state.data.stations.length;
-  let reachableStations = 0;
-
-  for (const station of state.data.stations) {
-    const trip = estimateTravel(origin, originDistances, station.point);
-    if (trip.minutes <= REACHABILITY_THRESHOLD_MINUTES) {
-      reachableStations += 1;
-    }
-  }
-
-  return {
-    reachableStations,
-    totalStations,
-    ratio: totalStations ? reachableStations / totalStations : 0,
-  };
-}
+// summarizeReachability moved to compute-worker.js
 
 function syncReachabilityScore(summary = null) {
   if (!summary) {
@@ -1482,145 +1407,12 @@ function syncReachabilityScore(summary = null) {
   }
 }
 
-function computeWarp(origin) {
-  const { distances, seeds } = runDijkstra(origin);
-  const settings = currentTravelSettings();
-  const { gridCols, gridRows, bounds } = state.data.meta;
-  const [minX, minY, maxX, maxY] = bounds;
-  const spanX = maxX - minX;
-  const spanY = maxY - minY;
-  const cellW = spanX / gridCols;
-  const cellH = spanY / gridRows;
-  const minuteGrid = Array.from({ length: gridRows }, () => new Array(gridCols).fill(Infinity));
-  const validMask = Array.from({ length: gridRows }, () => new Array(gridCols).fill(false));
+function warpCacheKey(origin, settings) {
+  return `${origin.point[0].toFixed(1)},${origin.point[1].toFixed(1)},${origin.swimMinutes.toFixed(3)},${settings.walkingSpeed.toFixed(2)},${settings.transitTime.toFixed(2)},${settings.transferTime.toFixed(2)},${settings.maxTransitTime}`;
+}
 
-  for (let maskIndex = 0; maskIndex < state.data.mask.length; maskIndex += 1) {
-    const cellIndex = state.data.mask[maskIndex];
-    if (cellIndex === -1) continue;
-    const cell = state.data.cells[cellIndex];
-    let bestMinutes =
-      distance(origin.point, cell.point) / settings.walkingSpeed + origin.swimMinutes;
-    for (const [stationIndex] of cell.access) {
-      const egressMinutes =
-        distance(cell.point, state.data.stations[stationIndex].point) / settings.walkingSpeed +
-        state.data.meta.stationAccessPenalty;
-      for (const routeStateIndex of state.data.stationStates[stationIndex] || []) {
-        bestMinutes = Math.min(bestMinutes, distances[routeStateIndex] + egressMinutes);
-      }
-    }
-    minuteGrid[cell.row][cell.col] = bestMinutes;
-    validMask[cell.row][cell.col] = true;
-  }
-
-  let smoothedMinutes = minuteGrid.map((row) => row.slice());
-  for (let pass = 0; pass < WEIGHT_BLUR_PASSES; pass += 1) {
-    const nextMinutes = Array.from({ length: gridRows }, () => new Array(gridCols).fill(Infinity));
-    for (let row = 0; row < gridRows; row += 1) {
-      for (let col = 0; col < gridCols; col += 1) {
-        if (!validMask[row][col]) continue;
-        let totalMinutes = 0;
-        let count = 0;
-        for (let y = Math.max(0, row - WEIGHT_BLUR_RADIUS); y <= Math.min(gridRows - 1, row + WEIGHT_BLUR_RADIUS); y += 1) {
-          for (let x = Math.max(0, col - WEIGHT_BLUR_RADIUS); x <= Math.min(gridCols - 1, col + WEIGHT_BLUR_RADIUS); x += 1) {
-            if (!validMask[y][x]) continue;
-            totalMinutes += smoothedMinutes[y][x];
-            count += 1;
-          }
-        }
-        nextMinutes[row][col] = count ? totalMinutes / count : smoothedMinutes[row][col];
-      }
-    }
-    smoothedMinutes = nextMinutes;
-  }
-
-  const areaWeights = Array.from({ length: gridRows }, () => new Array(gridCols).fill(0));
-  const anomalyGrid = Array.from({ length: gridRows }, () => new Array(gridCols).fill(0));
-
-  for (let row = 0; row < gridRows; row += 1) {
-    for (let col = 0; col < gridCols; col += 1) {
-      if (!validMask[row][col]) continue;
-      const areaWeight = minuteToAreaWeight(smoothedMinutes[row][col]);
-      areaWeights[row][col] = areaWeight;
-      anomalyGrid[row][col] = areaWeight - 1;
-    }
-  }
-
-  const reachability = summarizeReachability(origin, distances);
-
-  const warpNodes = Array.from({ length: gridRows + 1 }, () => new Array(gridCols + 1).fill(null));
-  const sigmaSq = WARP_SIGMA_CELLS * WARP_SIGMA_CELLS;
-  const maxShiftX = cellW * WARP_MAX_SHIFT_CELLS;
-  const maxShiftY = cellH * WARP_MAX_SHIFT_CELLS;
-
-  for (let nodeRow = 0; nodeRow <= gridRows; nodeRow += 1) {
-    for (let nodeCol = 0; nodeCol <= gridCols; nodeCol += 1) {
-      const baseX = minX + nodeCol * cellW;
-      const baseY = minY + nodeRow * cellH;
-      let offsetX = 0;
-      let offsetY = 0;
-
-      const rowStart = Math.max(0, nodeRow - WARP_INFLUENCE_RADIUS);
-      const rowEnd = Math.min(gridRows - 1, nodeRow + WARP_INFLUENCE_RADIUS - 1);
-      const colStart = Math.max(0, nodeCol - WARP_INFLUENCE_RADIUS);
-      const colEnd = Math.min(gridCols - 1, nodeCol + WARP_INFLUENCE_RADIUS - 1);
-
-      for (let row = rowStart; row <= rowEnd; row += 1) {
-        for (let col = colStart; col <= colEnd; col += 1) {
-          if (!validMask[row][col]) continue;
-          const anomaly = anomalyGrid[row][col];
-          if (Math.abs(anomaly) < 1e-6) continue;
-          const centerX = minX + (col + 0.5) * cellW;
-          const centerY = minY + (row + 0.5) * cellH;
-          const dxCells = (baseX - centerX) / cellW;
-          const dyCells = (baseY - centerY) / cellH;
-          const distSqCells = dxCells * dxCells + dyCells * dyCells;
-          const distCells = Math.sqrt(distSqCells + 1e-9);
-          const gaussian = Math.exp(-distSqCells / (2 * sigmaSq));
-          const strength = anomaly * gaussian * WARP_DISPLACEMENT_SCALE;
-          offsetX += (dxCells / distCells) * strength * cellW;
-          offsetY += (dyCells / distCells) * strength * cellH;
-        }
-      }
-
-      offsetX = clamp(offsetX, -maxShiftX, maxShiftX);
-      offsetY = clamp(offsetY, -maxShiftY, maxShiftY);
-
-      const edgeDistance = Math.min(nodeCol, gridCols - nodeCol, nodeRow, gridRows - nodeRow);
-      const edgeFade = smoothstep(0, WARP_EDGE_FADE_CELLS, edgeDistance);
-      warpNodes[nodeRow][nodeCol] = [baseX + offsetX * edgeFade, baseY + offsetY * edgeFade];
-    }
-  }
-
-  for (let pass = 0; pass < WARP_NODE_SMOOTHING_PASSES; pass += 1) {
-    const nextNodes = warpNodes.map((row) => row.map((point) => point.slice()));
-    for (let nodeRow = 1; nodeRow < gridRows; nodeRow += 1) {
-      for (let nodeCol = 1; nodeCol < gridCols; nodeCol += 1) {
-        let totalX = 0;
-        let totalY = 0;
-        let count = 0;
-        for (let y = nodeRow - 1; y <= nodeRow + 1; y += 1) {
-          for (let x = nodeCol - 1; x <= nodeCol + 1; x += 1) {
-            totalX += warpNodes[y][x][0];
-            totalY += warpNodes[y][x][1];
-            count += 1;
-          }
-        }
-        const edgeDistance = Math.min(nodeCol, gridCols - nodeCol, nodeRow, gridRows - nodeRow);
-        const edgeFade = smoothstep(0, WARP_EDGE_FADE_CELLS, edgeDistance);
-        const smoothedX = totalX / count;
-        const smoothedY = totalY / count;
-        nextNodes[nodeRow][nodeCol] = [
-          lerp(minX + nodeCol * cellW, smoothedX, 0.72 * edgeFade),
-          lerp(minY + nodeRow * cellH, smoothedY, 0.72 * edgeFade),
-        ];
-      }
-    }
-    for (let nodeRow = 0; nodeRow <= gridRows; nodeRow += 1) {
-      for (let nodeCol = 0; nodeCol <= gridCols; nodeCol += 1) {
-        warpNodes[nodeRow][nodeCol] = nextNodes[nodeRow][nodeCol];
-      }
-    }
-  }
+function makeWarpFunctions(warpNodes, gridInfo) {
+  const { minX, minY, maxX, maxY, cellW, cellH, gridCols, gridRows } = gridInfo;
 
   function warpPoint(point) {
     const clampedX = clamp(point[0], minX, maxX);
@@ -1663,7 +1455,6 @@ function computeWarp(origin) {
       const p10 = warpNodes[row][col + 1];
       const p11 = warpNodes[row + 1][col + 1];
       const p01 = warpNodes[row + 1][col];
-
       const upperWeights = barycentricWeights(point, p00, p10, p11);
       if (upperWeights) {
         return interpolateTriangle(
@@ -1673,7 +1464,6 @@ function computeWarp(origin) {
           [minX + (col + 1) * cellW, minY + (row + 1) * cellH],
         );
       }
-
       const lowerWeights = barycentricWeights(point, p00, p11, p01);
       if (lowerWeights) {
         return interpolateTriangle(
@@ -1683,64 +1473,66 @@ function computeWarp(origin) {
           [minX + col * cellW, minY + (row + 1) * cellH],
         );
       }
-
       return null;
     }
 
     for (let radius = 0; radius <= 8; radius += 1) {
       for (let row = approxRow - radius; row <= approxRow + radius; row += 1) {
         for (let col = approxCol - radius; col <= approxCol + radius; col += 1) {
-          if (radius > 0 && row > approxRow - radius && row < approxRow + radius && col > approxCol - radius && col < approxCol + radius) {
-            continue;
-          }
+          if (radius > 0 && row > approxRow - radius && row < approxRow + radius && col > approxCol - radius && col < approxCol + radius) continue;
           const solved = solveCell(row, col);
           if (solved) return solved;
         }
       }
     }
-
     for (let row = 0; row < gridRows; row += 1) {
       for (let col = 0; col < gridCols; col += 1) {
         const solved = solveCell(row, col);
         if (solved) return solved;
       }
     }
-
     return approximate;
   }
 
-  const allWarpedNodes = warpNodes.flat();
-  const xs = allWarpedNodes.map((point) => point[0]);
-  const ys = allWarpedNodes.map((point) => point[1]);
-  const warpedBounds = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
-  const expansion = Array.from({ length: gridRows }, () => new Array(gridCols).fill(0));
-  for (let row = 0; row < gridRows; row += 1) {
-    for (let col = 0; col < gridCols; col += 1) {
-      if (!validMask[row][col]) continue;
-      expansion[row][col] =
-        quadArea(
-          warpNodes[row][col],
-          warpNodes[row][col + 1],
-          warpNodes[row + 1][col + 1],
-          warpNodes[row + 1][col],
-        ) / (cellW * cellH);
-    }
+  return { warpPoint, inverseWarpPoint };
+}
+
+function dispatchWarpCompute(origin, cacheKey) {
+  if (!state.workerReady || state.workerPendingKey === cacheKey) return;
+  state.workerPending = true;
+  state.workerPendingKey = cacheKey;
+  state.computeWorker.postMessage({ type: "compute", origin, key: cacheKey });
+}
+
+function handleWorkerMessage(event) {
+  const { type } = event.data;
+
+  if (type === "ready") {
+    state.workerReady = true;
+    state.dirty = true;
+    requestDraw();
+    return;
   }
 
-  return {
-    distances,
-    seeds,
-    reachability,
-    warpPoint,
-    inverseWarpPoint,
-    warpedBounds,
-    warpNodes,
-    minutes: smoothedMinutes,
-    expansion,
-    areaWeights,
-    validMask,
-  };
+  if (type === "warpResult") {
+    const { key, result } = event.data;
+    state.workerPending = false;
+    if (state.workerPendingKey === key) state.workerPendingKey = null;
+
+    const { warpPoint, inverseWarpPoint } = makeWarpFunctions(result.warpNodes, result.gridInfo);
+    const fullResult = {
+      ...result,
+      warpPoint,
+      inverseWarpPoint,
+    };
+    state.warpCache = { key, result: fullResult };
+    state.dirty = true;
+    requestDraw();
+    return;
+  }
 }
+
+// computeWarp moved to compute-worker.js
 
 function drawHeatmap(drawCtx, warp, transform, useWarpGeometry = true) {
   const { gridCols, gridRows, bounds } = state.data.meta;
@@ -1912,7 +1704,11 @@ function drawMap(drawCtx, width, height) {
   }
 
   const normalizedOrigin = normalizeTravelPoint(state.originPoint);
-  const warp = computeWarp(normalizedOrigin);
+  const settings = currentTravelSettings();
+  const cacheKey = warpCacheKey(normalizedOrigin, settings);
+  // Use cached result if available; dispatch to worker if stale
+  const warp = (state.warpCache?.key === cacheKey) ? state.warpCache.result : null;
+  if (!warp) dispatchWarpCompute(normalizedOrigin, cacheKey);
   const baseTransform = state.transform;
   const warpPoint = state.showWarp && warp ? warp.warpPoint : (point) => point;
   const inverseWarpPoint = warp ? warp.inverseWarpPoint : (point) => point;
@@ -2844,15 +2640,27 @@ function useCurrentLocation() {
   );
 }
 
+async function loadWithFallback(preferredUrl, fallbackUrl) {
+  try {
+    const response = await fetch(preferredUrl);
+    if (response.ok) return response.json();
+  } catch (_) { /* fall through */ }
+  const response = await fetch(fallbackUrl);
+  return response.json();
+}
+
 async function init() {
-  const response = await fetch(DATA_URL);
-  state.data = await response.json();
+  // Phase 1: load rendering data (boroughs, streets, parks, stations, routes) — shows basemap fast
+  statusText.textContent = "Loading map…";
+  const renderData = await loadWithFallback(RENDER_DATA_URL, DATA_URL);
+  state.data = renderData;
   state.travelSettingsDefaults = getTravelSettingsDefaults();
   state.travelSettings = sanitizeTravelSettings(loadStoredTravelSettings(), state.travelSettingsDefaults);
-  state.dynamicAdjacency = buildDynamicAdjacency();
+  state.stationIndex = buildStationSpatialIndex();
+  state.dynamicAdjacency = null;
   state.isMobile = isMobileLayout();
   state.baseMapCache = null;
-  state.ready = true;
+  state.ready = true; // show basemap immediately
 
   const manhattan = state.data.boroughs.find((borough) => borough.name === "Melbourne");
   state.cursorPoint = null;
@@ -2904,53 +2712,6 @@ async function init() {
 
   resize();
   window.addEventListener("resize", resize);
-
-  mobileWarpToggle.checked = state.showWarp;
-  mobileHeatmapToggle.checked = state.showHeatmap;
-  mobileOutlineToggle.checked = state.showReachOutline;
-
-  for (const menu of settingsMenus) {
-    menu.addEventListener("toggle", () => {
-      if (menu.open) {
-        closeSharePanel();
-        closeSettingsMenus(menu);
-      }
-    });
-  }
-
-  for (const input of settingsInputs) {
-    input.addEventListener("input", () => {
-      const key = input.dataset.settingKey;
-      const unit = input.dataset.settingUnit;
-      if (!key || !unit) return;
-      const rawValue = Number(input.value);
-      if (!Number.isFinite(rawValue)) {
-        syncTravelSettingsInputs();
-        return;
-      }
-      const current = currentTravelSettings();
-      const nextSettings = {
-        ...current,
-        [key]: unit === "mph" ? mphToMetersPerMinute(rawValue) : rawValue,
-      };
-      applyTravelSettings(nextSettings);
-    });
-  }
-
-  for (const button of settingsResetButtons) {
-    button.addEventListener("click", () => {
-      applyTravelSettings(state.travelSettingsDefaults);
-    });
-  }
-
-  for (const button of settingsSaveButtons) {
-    button.addEventListener("click", () => {
-      const menu = button.closest(".settings-menu");
-      if (menu) {
-        menu.open = false;
-      }
-    });
-  }
 
   mapCanvas.addEventListener("pointerdown", (event) => {
     event.preventDefault();
@@ -3261,6 +3022,24 @@ async function init() {
   syncMobileSheet();
   syncMobileHelp();
   setDrawerCollapsed(true);
+
+  // Phase 2: load compute data in background, then spin up worker
+  loadWithFallback(COMPUTE_DATA_URL, DATA_URL).then((computeData) => {
+    Object.assign(state.data, computeData);
+    state.stationIndex = buildStationSpatialIndex();
+
+    state.computeWorker = new Worker(WORKER_URL, { type: "module" });
+    state.computeWorker.onmessage = handleWorkerMessage;
+    state.computeWorker.postMessage({
+      type: "init",
+      data: state.data,
+      travelSettings: state.travelSettings,
+      travelSettingsDefaults: state.travelSettingsDefaults,
+    });
+  }).catch((error) => {
+    console.error("Failed to load compute data:", error);
+    statusText.textContent = "Failed to load transit network data.";
+  });
 }
 
 init().catch((error) => {
