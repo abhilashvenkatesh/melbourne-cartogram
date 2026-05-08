@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Sequence, Tuple
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
 OUTPUT_DIR = ROOT / "output"
 

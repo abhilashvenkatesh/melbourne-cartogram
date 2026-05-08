@@ -14,7 +14,7 @@ from typing import Dict, Iterable, List, Sequence, Tuple
 from xml.etree import ElementTree as ET
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
 SITE_DATA_PATH = ROOT / "site" / "data" / "commute_map_data.json"
 SITE_RENDER_PATH = ROOT / "site" / "data" / "map_render.json"
