@@ -127,6 +127,7 @@ const shareLinkedInIcon = document.getElementById("shareLinkedInIcon");
 const searchMeta = document.getElementById("searchMeta");
 const searchResults = document.getElementById("searchResults");
 const reachScoreCard = document.getElementById("reachScoreCard");
+const reachScoreLabel = document.getElementById("reachScoreLabel");
 const reachScoreValue = document.getElementById("reachScoreValue");
 const reachScoreMeta = document.getElementById("reachScoreMeta");
 const mobileOriginTitle = document.getElementById("mobileOriginTitle");
@@ -135,6 +136,7 @@ const mobileClearButton = document.getElementById("mobileClearButton");
 const mobileSheet = document.getElementById("mobileSheet");
 const mobileSheetToggle = document.getElementById("mobileSheetToggle");
 const mobileSheetBody = document.getElementById("mobileSheetBody");
+const mobileReachLabel = document.getElementById("mobileReachLabel");
 const mobileReachValue = document.getElementById("mobileReachValue");
 const mobileReachMeta = document.getElementById("mobileReachMeta");
 const mobileWarpToggle = document.getElementById("mobileWarpToggle");
@@ -1385,7 +1387,15 @@ function estimateTravel(origin, originDistances, destinationPoint) {
 
 // summarizeReachability moved to compute-worker.js
 
+function syncReachLabels() {
+  const mins = currentTravelSettings().maxTransitTime;
+  const label = `${mins}-Minute Reach`;
+  if (reachScoreLabel) reachScoreLabel.textContent = label;
+  if (mobileReachLabel) mobileReachLabel.textContent = label;
+}
+
 function syncReachabilityScore(summary = null) {
+  syncReachLabels();
   if (!summary) {
     reachScoreCard.hidden = true;
     reachScoreValue.textContent = "-- / --";
@@ -1398,12 +1408,13 @@ function syncReachabilityScore(summary = null) {
   }
 
   reachScoreCard.hidden = false;
+  const threshold = summary.thresholdMinutes ?? currentTravelSettings().maxTransitTime;
   const percent = Math.round(summary.ratio * 100);
   reachScoreValue.textContent = `${summary.reachableStations} / ${summary.totalStations}`;
-  reachScoreMeta.textContent = `${percent}% of stations are reachable within ${REACHABILITY_THRESHOLD_MINUTES} minutes.`;
+  reachScoreMeta.textContent = `${percent}% of stations are reachable within ${threshold} minutes.`;
   if (mobileReachValue && mobileReachMeta) {
     mobileReachValue.textContent = `${summary.reachableStations} / ${summary.totalStations}`;
-    mobileReachMeta.textContent = `${percent}% of stations are reachable within ${REACHABILITY_THRESHOLD_MINUTES} minutes.`;
+    mobileReachMeta.textContent = `${percent}% of stations are reachable within ${threshold} minutes.`;
   }
 }
 
@@ -1951,7 +1962,7 @@ function exportShareImage() {
 
   exportCtx.fillStyle = "#17304d";
   exportCtx.font = '700 58px "Avenir Next", "Helvetica Neue", Helvetica, sans-serif';
-  exportCtx.fillText("New York City", 72, 146);
+  exportCtx.fillText("Melbourne", 72, 146);
 
   const nearestSeed = state.currentRender?.warp?.seeds?.[0];
   const nearestStationName = nearestSeed ? state.data.stations[nearestSeed.index].name : "Melbourne transit";
@@ -2037,7 +2048,7 @@ function exportShareImage() {
 
     exportCtx.fillStyle = "#5f6f7f";
     exportCtx.font = '700 17px "Avenir Next", "Helvetica Neue", Helvetica, sans-serif';
-    exportCtx.fillText("60-MINUTE REACH", badgeX + 20, badgeY + 26);
+    exportCtx.fillText(`${reachability.thresholdMinutes ?? 60}-MINUTE REACH`, badgeX + 20, badgeY + 26);
 
     exportCtx.fillStyle = "#17304d";
     exportCtx.font = '700 42px "Avenir Next", "Helvetica Neue", Helvetica, sans-serif';
@@ -2049,7 +2060,7 @@ function exportShareImage() {
 
     exportCtx.fillStyle = "#5f6f7f";
     exportCtx.font = '500 18px "Avenir Next", "Helvetica Neue", Helvetica, sans-serif';
-    exportCtx.fillText(`${percent}% of stations within 60 min`, badgeX + 20, badgeY + 94);
+    exportCtx.fillText(`${percent}% of stations within ${reachability.thresholdMinutes ?? 60} min`, badgeX + 20, badgeY + 94);
   }
   exportCtx.restore();
 
@@ -2574,7 +2585,7 @@ function lonLatToWorld(lon, lat) {
 
 async function searchAddress(query) {
   const params = new URLSearchParams({
-    q: `${query}, New York City`,
+    q: `${query}, Melbourne, Victoria, Australia`,
     format: "jsonv2",
     addressdetails: "1",
     countrycodes: "au",
@@ -3016,6 +3027,37 @@ async function init() {
   mobileHelpBubble.addEventListener("click", () => {
     expandMobileHelp();
   });
+
+  for (const input of settingsInputs) {
+    input.addEventListener("input", () => {
+      const key = input.dataset.settingKey;
+      const label = settingsValueLabels.find((l) => l.dataset.settingValue === key);
+      if (label) label.textContent = formatSettingLabel(key, Number(input.value));
+    });
+  }
+
+  for (const button of settingsSaveButtons) {
+    button.addEventListener("click", () => {
+      const card = button.closest(".settings-card");
+      const scopedInputs = card ? card.querySelectorAll("[data-setting-key]") : settingsInputs;
+      const next = {};
+      for (const input of scopedInputs) {
+        const key = input.dataset.settingKey;
+        if (!key) continue;
+        const v = Number(input.value);
+        next[key] = (key === "walkingSpeed" || key === "swimSpeed") ? mphToMetersPerMinute(v) : v;
+      }
+      applyTravelSettings(sanitizeTravelSettings(next));
+      closeSettingsMenus();
+    });
+  }
+
+  for (const button of settingsResetButtons) {
+    button.addEventListener("click", () => {
+      applyTravelSettings(getTravelSettingsDefaults());
+      closeSettingsMenus();
+    });
+  }
 
   setupFooterEmojiBursts();
   syncFullscreenButton();

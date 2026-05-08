@@ -345,13 +345,14 @@ function summarizeReachability(origin, originDistances) {
       const t = originDistances[rsi] + accessPenalty;
       if (t < bestMinutes) bestMinutes = t;
     }
-    if (bestMinutes <= REACHABILITY_THRESHOLD_MINUTES) reachableStations++;
+    if (bestMinutes <= travelSettings.maxTransitTime) reachableStations++;
   }
 
   return {
     reachableStations,
     totalStations,
     ratio: totalStations ? reachableStations / totalStations : 0,
+    thresholdMinutes: travelSettings.maxTransitTime,
   };
 }
 
