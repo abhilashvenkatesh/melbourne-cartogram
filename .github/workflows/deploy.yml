@@ -24,6 +24,9 @@ jobs:
       - name: Pull Vercel environment
         run: vercel pull --yes --environment=${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }} --token=${{ secrets.VERCEL_TOKEN }}
 
+      - name: Build
+        run: vercel build ${{ github.ref == 'refs/heads/main' && '--prod' || '' }} --token=${{ secrets.VERCEL_TOKEN }}
+
       - name: Deploy to Vercel
         run: |
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
