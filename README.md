@@ -1,5 +1,7 @@
 # Melbourne Cartogram
 
+![Melbourne Cartogram](site/site-pic.png)
+
 Two artifacts for Melbourne:
 
 - A static SVG cartogram that expands areas with strong PTV access and compresses areas with weak access
