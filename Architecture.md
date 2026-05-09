@@ -40,6 +40,7 @@ The `data/` folder contains the source material:
 - `melbourne_parks_osm.json` has large parks and open spaces from OpenStreetMap.
 - `melbourne_major_streets.json` has major roads from OpenStreetMap.
 - `ptv_metro_trains.zip`, `ptv_trams.zip`, and `ptv_metro_buses.zip` are GTFS timetable files from PTV.
+- `ptv_gtfs.zip` is the full PTV GTFS bundle. The pipeline reads its nested V/Line regional train feed.
 
 GTFS is a standard public transport data format. It contains stops, routes, trips, shapes, and stop times. This project uses it as a static timetable snapshot. The app does not ask PTV for live delays or cancellations.
 
@@ -110,6 +111,8 @@ The pipeline calculates:
 - Transfer time between routes at the same station.
 - Walking transfer time between nearby stop complexes.
 - A filter that drops very infrequent bus routes so the network is useful and not overwhelmed by rare services.
+
+The interactive network includes metro trains, trams, filtered metro buses, and V/Line regional trains. It does not include V/Line coaches or regional town buses.
 
 ### 4. A 160 x 160 grid over Melbourne
 

@@ -31,14 +31,15 @@ Output: `site/data/commute_map_data.json`
 | `data/ptv_metro_trains.zip` | PTV GTFS — metropolitan trains | [PTV Developer Portal](https://www.ptv.vic.gov.au/footer/data-and-reporting/datasets/ptv-timetable-api/) |
 | `data/ptv_trams.zip` | PTV GTFS — trams | PTV Developer Portal |
 | `data/ptv_metro_buses.zip` | PTV GTFS — metropolitan buses | PTV Developer Portal |
+| `data/ptv_gtfs.zip` | Full PTV GTFS bundle, used for V/Line regional trains | PTV Developer Portal |
 
 All GTFS files are a static snapshot. The app does not use real-time feeds.
 
-> **Note:** GTFS zip snapshots can be large and may not all be present in a fresh clone. Download `ptv_metro_trains.zip`, `ptv_trams.zip`, and `ptv_metro_buses.zip` from the [PTV Developer Portal](https://www.ptv.vic.gov.au/footer/data-and-reporting/datasets/ptv-timetable-api/) and place them in the `data/` folder before running the pipeline.
+> **Note:** GTFS zip snapshots can be large and may not all be present in a fresh clone. Download `ptv_metro_trains.zip`, `ptv_trams.zip`, `ptv_metro_buses.zip`, and the full `ptv_gtfs.zip` bundle from the [PTV Developer Portal](https://www.ptv.vic.gov.au/footer/data-and-reporting/datasets/ptv-timetable-api/) and place them in the `data/` folder before running the pipeline.
 
 ## How the travel-time model works
 
-1. **Stops** — train stops are grouped by parent station; tram and bus stops are individual nodes. Only bus routes with ≥ 100 scheduled trips are included (filters very infrequent services).
+1. **Stops** — metro and V/Line train stops are grouped by parent station; tram and bus stops are individual nodes. Only bus routes with ≥ 100 scheduled trips are included (filters very infrequent services).
 
 2. **Graph edges** — on-vehicle travel times come from median stop-to-stop durations across all GTFS trips. Same-station transfers add a 4-minute penalty plus half the target route's headway. Nearby stops within 260 m of each other get a walk-transfer edge (2 min penalty + inter-complex 7 min penalty + target headway).
 
@@ -137,7 +138,7 @@ Deployed via Vercel. Push to `main` to trigger a deploy. `vercel.json` sets `sit
 ## Limitations
 
 - **Static schedule** — GTFS is a snapshot. No real-time delays, cancellations, or timetable updates.
-- **No V/Line or regional trains** — only PTV metropolitan train routes (GTFS route type 400).
+- **V/Line scope** — V/Line regional train routes are included from the full PTV GTFS bundle. Regional coaches and regional town buses are still excluded.
 - **Bus frequency filter** — bus routes with fewer than 100 trips in the GTFS snapshot are excluded. Very infrequent or school-only routes may be missing.
 - **Simplified walk model** — flat walking speed with no account for hills, barriers (freeways, rivers), or pedestrian path availability.
 - **No fare zones** — travel times do not reflect myki zone costs or journey planning constraints.

@@ -24,6 +24,8 @@ STREETS_PATH = DATA_DIR / "melbourne_major_streets.json"
 TRAINS_GTFS = DATA_DIR / "ptv_metro_trains.zip"
 TRAMS_GTFS = DATA_DIR / "ptv_trams.zip"
 BUSES_GTFS = DATA_DIR / "ptv_metro_buses.zip"
+PTV_GTFS = DATA_DIR / "ptv_gtfs.zip"
+VLINE_TRAINS_GTFS = (PTV_GTFS, "1/google_transit.zip")
 
 GRID_COLS = 160
 GRID_ROWS = 160
@@ -42,9 +44,10 @@ INTER_COMPLEX_TRANSFER_PENALTY = 7.0
 
 # PTV route types
 TRAIN_ROUTE_TYPES = {"400"}
+VLINE_TRAIN_ROUTE_TYPES = {"2"}
 TRAM_ROUTE_TYPES = {"0"}
 BUS_ROUTE_TYPES = {"3", "701"}
-ALL_ROUTE_TYPES = TRAIN_ROUTE_TYPES | TRAM_ROUTE_TYPES | BUS_ROUTE_TYPES
+ALL_ROUTE_TYPES = TRAIN_ROUTE_TYPES | VLINE_TRAIN_ROUTE_TYPES | TRAM_ROUTE_TYPES | BUS_ROUTE_TYPES
 
 # Only include bus routes with enough trips to be worth routing through
 MIN_BUS_TRIPS_FOR_ROUTING = 100
@@ -341,8 +344,18 @@ def extract_streets(lat0: float, bbox: Tuple[float, float, float, float]) -> lis
     return streets
 
 
-def read_csv_from_zip(gtfs_path: Path, member: str) -> Iterable[dict]:
-    with zipfile.ZipFile(gtfs_path) as archive:
+def read_csv_from_zip(gtfs_source, member: str) -> Iterable[dict]:
+    if isinstance(gtfs_source, tuple):
+        outer_path, inner_path = gtfs_source
+        with zipfile.ZipFile(outer_path) as outer_archive:
+            with outer_archive.open(inner_path) as inner_handle:
+                with zipfile.ZipFile(inner_handle) as archive:
+                    with archive.open(member) as handle:
+                        reader = csv.DictReader(line.decode("utf-8-sig") for line in handle)
+                        yield from reader
+        return
+
+    with zipfile.ZipFile(gtfs_source) as archive:
         with archive.open(member) as handle:
             reader = csv.DictReader(line.decode("utf-8-sig") for line in handle)
             yield from reader
@@ -376,34 +389,49 @@ def build_station_data(lat0: float) -> Tuple[list, Dict[str, int], Dict[str, str
     station_index_by_id: Dict[str, int] = {}
     stop_to_complex: Dict[str, str] = {}
 
-    # --- Metro trains: group stops by parent_station ---
-    train_parents: Dict[str, dict] = {}
-    train_stop_to_parent: Dict[str, str] = {}
+    def add_grouped_train_stops(gtfs_source, fallback_prefix: str) -> None:
+        train_parents: Dict[str, dict] = {}
+        train_stop_to_parent: Dict[str, str] = {}
 
-    for row in read_csv_from_zip(TRAINS_GTFS, "stops.txt"):
-        loc_type = row.get("location_type", "")
-        stop_id = row["stop_id"]
-        if loc_type == "1":
-            # Parent station
-            name = row["stop_name"].replace(" Railway Station", "").replace(" Station", "").strip()
-            train_parents[stop_id] = {
-                "id": stop_id,
-                "name": name,
-                "point": lonlat_to_xy(float(row["stop_lon"]), float(row["stop_lat"]), lat0),
-                "routes": set(),
-            }
-        elif row.get("parent_station"):
-            train_stop_to_parent[stop_id] = row["parent_station"]
+        for row in read_csv_from_zip(gtfs_source, "stops.txt"):
+            loc_type = row.get("location_type", "")
+            stop_id = row["stop_id"]
+            if loc_type == "1":
+                name = row["stop_name"].replace(" Railway Station", "").replace(" Station", "").strip()
+                train_parents[stop_id] = {
+                    "id": stop_id,
+                    "name": name,
+                    "point": lonlat_to_xy(float(row["stop_lon"]), float(row["stop_lat"]), lat0),
+                    "routes": set(),
+                }
+            elif row.get("parent_station"):
+                train_stop_to_parent[stop_id] = row["parent_station"]
+            elif loc_type not in ("2", "3"):
+                parent_id = f"{fallback_prefix}:{stop_id}"
+                name = row["stop_name"].replace(" Railway Station", "").replace(" Station", "").strip()
+                train_parents[parent_id] = {
+                    "id": parent_id,
+                    "name": name,
+                    "point": lonlat_to_xy(float(row["stop_lon"]), float(row["stop_lat"]), lat0),
+                    "routes": set(),
+                }
+                train_stop_to_parent[stop_id] = parent_id
 
-    for parent_id, info in train_parents.items():
-        idx = len(stations)
-        station_index_by_id[parent_id] = idx
-        stop_to_complex[parent_id] = parent_id
-        stations.append(info)
+        for parent_id, info in train_parents.items():
+            if parent_id in station_index_by_id:
+                continue
+            idx = len(stations)
+            station_index_by_id[parent_id] = idx
+            stop_to_complex[parent_id] = parent_id
+            stations.append(info)
 
-    for stop_id, parent_id in train_stop_to_parent.items():
-        if parent_id in station_index_by_id:
-            stop_to_complex[stop_id] = parent_id
+        for stop_id, parent_id in train_stop_to_parent.items():
+            if parent_id in station_index_by_id:
+                stop_to_complex[stop_id] = parent_id
+
+    # --- Metro and V/Line trains: group stops by parent_station ---
+    add_grouped_train_stops(TRAINS_GTFS, "metro-train")
+    add_grouped_train_stops(VLINE_TRAINS_GTFS, "vline-train")
 
     # --- Trams: each stop is its own station ---
     for row in read_csv_from_zip(TRAMS_GTFS, "stops.txt"):
@@ -457,6 +485,7 @@ def build_routes_and_shapes(
 
     gtfs_configs = [
         (TRAINS_GTFS, TRAIN_ROUTE_TYPES, None),
+        (VLINE_TRAINS_GTFS, VLINE_TRAIN_ROUTE_TYPES, None),
         (TRAMS_GTFS, TRAM_ROUTE_TYPES, None),
         (BUSES_GTFS, BUS_ROUTE_TYPES, frequent_bus_routes),
     ]
@@ -525,7 +554,7 @@ def build_route_waits(trips_by_id: dict) -> Dict[str, float]:
     """Compute half-headway wait times per route from all GTFS feeds."""
     departures_by_route_service: Dict[Tuple[str, str], List[int]] = defaultdict(list)
 
-    for gtfs_path in [TRAINS_GTFS, TRAMS_GTFS, BUSES_GTFS]:
+    for gtfs_path in [TRAINS_GTFS, VLINE_TRAINS_GTFS, TRAMS_GTFS, BUSES_GTFS]:
         current_trip_id = None
         first_departure = None
         for row in read_csv_from_zip(gtfs_path, "stop_times.txt"):
@@ -600,7 +629,7 @@ def build_graph(
                 to_index = station_index_by_id[to_complex]
                 durations_by_edge[(from_index, to_index, route_id)].append(duration_seconds / 60.0)
 
-    for gtfs_path in [TRAINS_GTFS, TRAMS_GTFS, BUSES_GTFS]:
+    for gtfs_path in [TRAINS_GTFS, VLINE_TRAINS_GTFS, TRAMS_GTFS, BUSES_GTFS]:
         current_trip_id = None
         current_rows = []
         for row in read_csv_from_zip(gtfs_path, "stop_times.txt"):
