@@ -613,6 +613,37 @@ function formatDistanceLabel(baseMinutes, swimMinutes) {
   return label === "unreachable" ? label : `${label} away`;
 }
 
+function routeModeForRouteId(routeId) {
+  if (routeId.includes("vic-01")) return "V/Line";
+  if (routeId.includes("vic-02")) return "Train";
+  if (routeId.includes("vic-03")) return "Tram";
+  return "Bus";
+}
+
+function routeModesForState(routeStateIndex, previous) {
+  if (!Number.isInteger(routeStateIndex) || routeStateIndex < 0 || !previous) return [];
+  const routeIds = [];
+  const seenStates = new Set();
+  let current = routeStateIndex;
+  while (current >= 0 && !seenStates.has(current)) {
+    seenStates.add(current);
+    const routeId = state.data.routeStates[current]?.routeId;
+    if (routeId && routeIds[routeIds.length - 1] !== routeId) {
+      routeIds.push(routeId);
+    }
+    current = previous[current];
+  }
+  return [...new Set(routeIds.reverse().map(routeModeForRouteId))];
+}
+
+function compactTravelLabel(measurement) {
+  if (!measurement || !Number.isFinite(measurement.baseMinutes)) return { minutes: "unreachable", modes: [] };
+  return {
+    minutes: formatMinutes(measurement.baseMinutes),
+    modes: measurement.modes || [],
+  };
+}
+
 function formatShareTime(date = new Date()) {
   return date.toLocaleString([], {
     month: "short",
@@ -1401,27 +1432,38 @@ function nearestStations(point, count) {
 
 // runDijkstra, MinHeap, buildDynamicAdjacency moved to compute-worker.js
 
-function estimateTravel(origin, originDistances, destinationPoint) {
+function estimateTravel(origin, originDistances, destinationPoint, previous = null) {
   const settings = currentTravelSettings();
   const destination = normalizeTravelPoint(destinationPoint);
   const swimMinutes = origin.swimMinutes + destination.swimMinutes;
   let bestMinutes =
     distance(origin.point, destination.point) / settings.walkingSpeed +
     swimMinutes;
+  let bestRouteStateIndex = null;
+  let bestStationWalkMinutes = 0;
   const nearby = nearestStations(destination.point, state.data.meta.cellNearestStations);
   for (const station of nearby) {
     for (const routeStateIndex of state.data.stationStates[station.index] || []) {
-      bestMinutes = Math.min(
-        bestMinutes,
-        originDistances[routeStateIndex] + station.walkMinutes + destination.swimMinutes,
-      );
+      const candidate = originDistances[routeStateIndex] + station.walkMinutes + destination.swimMinutes;
+      if (candidate < bestMinutes) {
+        bestMinutes = candidate;
+        bestRouteStateIndex = routeStateIndex;
+        bestStationWalkMinutes = station.walkMinutes;
+      }
     }
   }
+  const modes = bestRouteStateIndex === null
+    ? ["Walk"]
+    : [
+        "Walk",
+        ...routeModesForState(bestRouteStateIndex, previous),
+      ];
   return {
     minutes: bestMinutes,
     baseMinutes: bestMinutes - swimMinutes,
     swimMinutes,
     destination,
+    modes,
   };
 }
 
@@ -1856,7 +1898,7 @@ function drawMap(drawCtx, width, height) {
     const probe = measureProbeFromWarp(normalizedOrigin, warp, activeProbePoint);
     statusText.textContent = station ? `Pinned near ${station.name}` : "Pinned origin";
     if (probe && activeProbeScreen) {
-      drawHoverTooltip(drawCtx, activeProbeScreen, formatDistanceLabel(probe.baseMinutes, probe.swimMinutes));
+      drawHoverTooltip(drawCtx, activeProbeScreen, compactTravelLabel(probe));
     }
   } else {
     statusText.textContent = station
@@ -1891,6 +1933,10 @@ function drawMarker(drawCtx, screenPoint, color, glowRadius, radius, glowAlpha =
 }
 
 function drawHoverTooltip(drawCtx, screenPoint, label) {
+  if (typeof label !== "string") {
+    drawCompactTravelTooltip(drawCtx, screenPoint, label);
+    return;
+  }
   const [sx, sy] = screenPoint;
   drawCtx.save();
   drawCtx.font = '700 13px "Avenir Next", "Helvetica Neue", Helvetica, sans-serif';
@@ -1911,6 +1957,52 @@ function drawHoverTooltip(drawCtx, screenPoint, label) {
 
   drawCtx.fillStyle = "#fff8ef";
   drawCtx.fillText(label, boxX + boxWidth / 2, boxY + boxHeight / 2 + 0.5);
+  drawCtx.restore();
+}
+
+function drawCompactTravelTooltip(drawCtx, screenPoint, summary) {
+  const [sx, sy] = screenPoint;
+  const modes = summary.modes || [];
+  drawCtx.save();
+  drawCtx.font = '700 13px "Avenir Next", "Helvetica Neue", Helvetica, sans-serif';
+  drawCtx.textAlign = "left";
+  drawCtx.textBaseline = "middle";
+
+  const gap = 6;
+  const paddingX = 10;
+  const chipPaddingX = 8;
+  const chipHeight = 20;
+  const boxHeight = 32;
+  const minuteWidth = drawCtx.measureText(summary.minutes).width;
+  const chipWidths = modes.map((mode) => drawCtx.measureText(mode).width + chipPaddingX * 2);
+  const chipsWidth = chipWidths.reduce((total, width) => total + width, 0) + Math.max(0, chipWidths.length - 1) * 4;
+  const boxWidth = paddingX * 2 + minuteWidth + (modes.length ? gap + chipsWidth : 0);
+  const boxX = clamp(sx - boxWidth / 2, 12, drawCtx.canvas.clientWidth - boxWidth - 12);
+  const boxY = clamp(sy + 16, 12, drawCtx.canvas.clientHeight - boxHeight - 12);
+
+  drawCtx.fillStyle = "rgba(23, 48, 77, 0.92)";
+  drawCtx.beginPath();
+  drawCtx.roundRect(boxX, boxY, boxWidth, boxHeight, 10);
+  drawCtx.fill();
+
+  let x = boxX + paddingX;
+  const y = boxY + boxHeight / 2;
+  drawCtx.fillStyle = "#fff8ef";
+  drawCtx.fillText(summary.minutes, x, y + 0.5);
+  x += minuteWidth + gap;
+
+  for (let index = 0; index < modes.length; index += 1) {
+    const mode = modes[index];
+    const chipWidth = chipWidths[index];
+    drawCtx.fillStyle = mode === "V/Line" ? "rgba(143, 26, 149, 0.98)" : "rgba(255, 248, 239, 0.16)";
+    drawCtx.beginPath();
+    drawCtx.roundRect(x, y - chipHeight / 2, chipWidth, chipHeight, 8);
+    drawCtx.fill();
+    drawCtx.fillStyle = "#fff8ef";
+    drawCtx.fillText(mode, x + chipPaddingX, y + 0.5);
+    x += chipWidth + 4;
+  }
+
   drawCtx.restore();
 }
 
@@ -1950,7 +2042,7 @@ function drawPinnedLabel(drawCtx, screenPoint, label, options = {}) {
 function measureProbeFromWarp(normalizedOrigin, warp, probePoint) {
   if (!normalizedOrigin || !probePoint) return null;
   if (warp?.distances) {
-    return estimateTravel(normalizedOrigin, warp.distances, probePoint);
+    return estimateTravel(normalizedOrigin, warp.distances, probePoint, warp.previous ?? null);
   }
   const settings = currentTravelSettings();
   const destination = normalizeTravelPoint(probePoint);
@@ -1963,6 +2055,7 @@ function measureProbeFromWarp(normalizedOrigin, warp, probePoint) {
     baseMinutes: minutes - swimMinutes,
     swimMinutes,
     destination,
+    modes: ["Walk"],
   };
 }
 

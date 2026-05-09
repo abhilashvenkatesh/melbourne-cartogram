@@ -6,7 +6,7 @@
     <title>Melbourne Commute POV | Transit Time Cartogram</title>
     <meta
       name="description"
-      content="Explore Melbourne by transit commute time with a warped cartogram, live origin pinning, and 60-minute reachability scores."
+      content="Explore Melbourne and Greater Melbourne by transit commute time with trains, trams, frequent buses, V/Line, route-mode chips, and reachability scores."
     />
     <link rel="canonical" href="https://melbtransit.avbuilds.dev/" />
     <meta property="og:site_name" content="Melbourne Commute POV" />
@@ -14,7 +14,7 @@
     <meta property="og:title" content="Melbourne Commute POV | Transit Time Cartogram" />
     <meta
       property="og:description"
-      content="Explore Melbourne by transit commute time with a warped cartogram, live origin pinning, and 60-minute reachability scores."
+      content="Explore Melbourne and Greater Melbourne by transit commute time with trains, trams, frequent buses, V/Line, route-mode chips, and reachability scores."
     />
     <meta property="og:url" content="https://melbtransit.avbuilds.dev/" />
     <meta property="og:image" content="https://melbtransit.avbuilds.dev/site-pic.png" />
@@ -25,7 +25,7 @@
     <meta name="twitter:title" content="Melbourne Commute POV | Transit Time Cartogram" />
     <meta
       name="twitter:description"
-      content="Explore Melbourne by transit commute time with a warped cartogram, live origin pinning, and 60-minute reachability scores."
+      content="Explore Melbourne and Greater Melbourne by transit commute time with trains, trams, frequent buses, V/Line, route-mode chips, and reachability scores."
     />
     <meta name="twitter:image:alt" content="Preview of the Melbourne Commute POV transit cartogram." />
     <script>
@@ -59,8 +59,8 @@
           <p class="eyebrow">Transit Time Cartogram</p>
           <h1>Melbourne by how long it takes to get there.</h1>
           <p class="lede">
-            Hover over the map to choose an origin. Click to pin it, then move the cursor to read
-            commute times back to that pinned point while the city stays warped around it.
+            Click or drag on the map to pin an origin. Move the cursor or place a destination pin
+            to read travel time with compact walk, train, tram, bus, and V/Line mode chips.
           </p>
         </div>
         <div class="hero-stats">
@@ -171,7 +171,7 @@
               >
                 <p class="mobile-map-instructions-title">How It Works</p>
                 <p>Touch and drag anywhere on the map to generate your heatmap.</p>
-                <p>Touch again to measure commute time.</p>
+                <p>Touch again to measure commute time and see the modes used.</p>
                 <p>Pins can be dragged to reposition them.</p>
                 <section id="reachScoreCard" class="map-score-card desktop-help-reach" aria-live="polite" hidden>
                   <span id="reachScoreLabel" class="map-score-label">60-Minute Reach</span>
@@ -364,8 +364,12 @@
 
       <section class="notes">
         <p>
+          Destination labels show the estimated travel time followed by mode chips, such as Walk,
+          Train, Tram, Bus, or V/Line, summarising the services used by the fastest path.
+        </p>
+        <p>
           Travel times are estimated from PTV GTFS trips (trains, trams, and frequent buses) plus short walking access to and
-          from stops. Does not include real-time schedules or V/Line regional trains.
+          from stops. V/Line regional trains are included; regional coaches, real-time schedules, and disruptions are not.
         </p>
       </section>
 

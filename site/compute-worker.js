@@ -288,6 +288,7 @@ class MinHeap {
 function runDijkstra(origin) {
   const stateCount = workerData.routeStates.length;
   const distances = new Float64Array(stateCount).fill(Infinity);
+  const previous = new Int32Array(stateCount).fill(-1);
   const seeds = nearestStations(origin.point, workerData.meta.originStationCount);
   const heap = new MinHeap();
 
@@ -300,6 +301,7 @@ function runDijkstra(origin) {
       const dist = origin.swimMinutes + seed.walkMinutes + travelSettings.transitTime + boardingDelta;
       if (dist < distances[routeStateIndex]) {
         distances[routeStateIndex] = dist;
+        previous[routeStateIndex] = -1;
         heap.push(dist, routeStateIndex);
       }
     }
@@ -323,12 +325,13 @@ function runDijkstra(origin) {
       const candidate = distances[current] + weight;
       if (candidate < distances[nextIndex]) {
         distances[nextIndex] = candidate;
+        previous[nextIndex] = current;
         heap.push(candidate, nextIndex);
       }
     }
   }
 
-  return { distances, seeds };
+  return { distances, previous, seeds };
 }
 
 // ── Reachability ──────────────────────────────────────────────────────────────
@@ -360,7 +363,7 @@ function summarizeReachability(origin, originDistances) {
 // Returns plain data (no functions) — main thread reconstructs warpPoint/inverseWarpPoint.
 
 function computeWarp(origin) {
-  const { distances, seeds } = runDijkstra(origin);
+  const { distances, previous, seeds } = runDijkstra(origin);
   const { gridCols, gridRows, bounds } = workerData.meta;
   const [minX, minY, maxX, maxY] = bounds;
   const spanX = maxX - minX;
@@ -517,6 +520,7 @@ function computeWarp(origin) {
 
   return {
     distances,
+    previous,
     seeds,
     reachability,
     warpNodes,
@@ -554,8 +558,7 @@ self.onmessage = (event) => {
   if (type === "compute") {
     const { origin, key } = event.data;
     const result = computeWarp(origin);
-    // Transfer the distances buffer to avoid copying 300KB
-    self.postMessage({ type: "warpResult", key, result }, [result.distances.buffer]);
+    self.postMessage({ type: "warpResult", key, result }, [result.distances.buffer, result.previous.buffer]);
     return;
   }
 };
