@@ -41,6 +41,13 @@ const MOBILE_DRAWER_SWIPE_THRESHOLD_PX = 36;
 const METERS_PER_MINUTE_PER_MPH = 26.8224;
 const SETTINGS_STORAGE_KEY = "mel-cartogram-settings-v1";
 const GREATER_MELBOURNE_ONLY_LGAS = new Set(["Cardinia", "Mornington Peninsula", "Yarra Ranges"]);
+const MODE_PICTOGRAM_SOURCES = {
+  Walk: "PICTO_MODE_Walking.svg",
+  Train: "PICTO_MODE_Train.svg",
+  Tram: "PICTO_MODE_Tram.svg",
+  Bus: "PICTO_MODE_Bus.svg",
+  "V/Line": "PICTO_MODE_RegionalTrain.svg",
+};
 
 const EMOJI_BURST_SETS = {
   github: ["💻", "🖥️", "⌨️", "⚙️", "🧑‍💻"],
@@ -167,6 +174,7 @@ const settingsMenus = Array.from(document.querySelectorAll(".settings-menu"));
 const ctx = mapCanvas.getContext("2d");
 const panelCard = document.querySelector(".panel-card");
 const footerEmojiLinks = Array.from(document.querySelectorAll("[data-emoji-burst]"));
+const modePictograms = new Map();
 
 const emojiBurstState = {
   mediaQuery: null,
@@ -198,6 +206,28 @@ shareXIcon.src = new URL("./x.png", import.meta.url).toString();
 shareFacebookIcon.src = new URL("./Facebook.png", import.meta.url).toString();
 shareInstagramIcon.src = new URL("./Instagram.png", import.meta.url).toString();
 shareLinkedInIcon.src = new URL("./LinkedIn.png", import.meta.url).toString();
+
+function loadModePictograms() {
+  for (const [mode, filename] of Object.entries(MODE_PICTOGRAM_SOURCES)) {
+    const image = new Image();
+    image.onload = () => {
+      state.dirty = true;
+      requestDraw();
+    };
+    image.src = new URL(`./assets/transport-pictograms/${filename}`, import.meta.url).toString();
+    modePictograms.set(mode, image);
+  }
+}
+
+function modePictogramFor(mode) {
+  const image = modePictograms.get(mode);
+  if (!image || !image.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return null;
+  return image;
+}
+
+function modeFallbackLabel(mode) {
+  return mode === "V/Line" ? "V" : mode.slice(0, 1);
+}
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -1965,17 +1995,15 @@ function drawCompactTravelTooltip(drawCtx, screenPoint, summary) {
   const modes = summary.modes || [];
   drawCtx.save();
   drawCtx.font = '700 13px "Avenir Next", "Helvetica Neue", Helvetica, sans-serif';
-  drawCtx.textAlign = "left";
   drawCtx.textBaseline = "middle";
 
   const gap = 6;
   const paddingX = 10;
-  const chipPaddingX = 8;
-  const chipHeight = 20;
+  const chipSize = 24;
+  const chipIconSize = 18;
   const boxHeight = 32;
   const minuteWidth = drawCtx.measureText(summary.minutes).width;
-  const chipWidths = modes.map((mode) => drawCtx.measureText(mode).width + chipPaddingX * 2);
-  const chipsWidth = chipWidths.reduce((total, width) => total + width, 0) + Math.max(0, chipWidths.length - 1) * 4;
+  const chipsWidth = modes.length * chipSize + Math.max(0, modes.length - 1) * 4;
   const boxWidth = paddingX * 2 + minuteWidth + (modes.length ? gap + chipsWidth : 0);
   const boxX = clamp(sx - boxWidth / 2, 12, drawCtx.canvas.clientWidth - boxWidth - 12);
   const boxY = clamp(sy + 16, 12, drawCtx.canvas.clientHeight - boxHeight - 12);
@@ -1987,20 +2015,32 @@ function drawCompactTravelTooltip(drawCtx, screenPoint, summary) {
 
   let x = boxX + paddingX;
   const y = boxY + boxHeight / 2;
+  drawCtx.textAlign = "left";
   drawCtx.fillStyle = "#fff8ef";
   drawCtx.fillText(summary.minutes, x, y + 0.5);
   x += minuteWidth + gap;
 
   for (let index = 0; index < modes.length; index += 1) {
     const mode = modes[index];
-    const chipWidth = chipWidths[index];
+    const pictogram = modePictogramFor(mode);
     drawCtx.fillStyle = mode === "V/Line" ? "rgba(143, 26, 149, 0.98)" : "rgba(255, 248, 239, 0.16)";
     drawCtx.beginPath();
-    drawCtx.roundRect(x, y - chipHeight / 2, chipWidth, chipHeight, 8);
+    drawCtx.roundRect(x, y - chipSize / 2, chipSize, chipSize, 8);
     drawCtx.fill();
-    drawCtx.fillStyle = "#fff8ef";
-    drawCtx.fillText(mode, x + chipPaddingX, y + 0.5);
-    x += chipWidth + 4;
+    if (pictogram) {
+      drawCtx.drawImage(
+        pictogram,
+        x + (chipSize - chipIconSize) / 2,
+        y - chipIconSize / 2,
+        chipIconSize,
+        chipIconSize,
+      );
+    } else {
+      drawCtx.textAlign = "center";
+      drawCtx.fillStyle = "#fff8ef";
+      drawCtx.fillText(modeFallbackLabel(mode), x + chipSize / 2, y + 0.5);
+    }
+    x += chipSize + 4;
   }
 
   drawCtx.restore();
@@ -2809,6 +2849,7 @@ async function loadWithFallback(preferredUrl, fallbackUrl) {
 async function init() {
   // Phase 1: load rendering data (LGAs, streets, parks, stations, routes) — shows basemap fast
   statusText.textContent = "Loading map…";
+  loadModePictograms();
   const renderData = await loadWithFallback(RENDER_DATA_URL, DATA_URL);
   state.data = renderData;
   state.travelSettingsDefaults = getTravelSettingsDefaults();
