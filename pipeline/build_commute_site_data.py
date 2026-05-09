@@ -29,8 +29,7 @@ COUNTIES_KML_ZIP_PATH = DATA_DIR / "cb_2024_us_county_500k.zip"
 GRID_COLS = 160
 GRID_ROWS = 160
 MIN_PARK_AREA = 70_000.0
-# Keep walking assumptions close to a normal NYC walking pace so first/last-mile
-# time does not dominate otherwise reasonable subway trips.
+# Walking speed tuned so first/last-mile time does not dominate otherwise reasonable tram/train trips.
 WALK_METERS_PER_MINUTE = 80.0
 ACCESS_WALK_METERS_PER_MINUTE = 75.0
 STATION_ACCESS_PENALTY = 3.5
