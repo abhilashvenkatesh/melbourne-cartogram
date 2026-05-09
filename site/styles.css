@@ -631,6 +631,14 @@ canvas {
   z-index: 1;
 }
 
+#mapCanvas {
+  cursor: grab;
+}
+
+#mapCanvas:active {
+  cursor: grabbing;
+}
+
 .map-frame {
   margin-top: 12px;
   position: relative;
