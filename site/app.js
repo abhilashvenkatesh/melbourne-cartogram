@@ -40,6 +40,7 @@ const EMOJI_BURST_LIFETIME_MS = 900;
 const MOBILE_DRAWER_SWIPE_THRESHOLD_PX = 36;
 const METERS_PER_MINUTE_PER_MPH = 26.8224;
 const SETTINGS_STORAGE_KEY = "mel-cartogram-settings-v1";
+const GREATER_MELBOURNE_ONLY_LGAS = new Set(["Cardinia", "Mornington Peninsula", "Yarra Ranges"]);
 
 const EMOJI_BURST_SETS = {
   github: ["💻", "🖥️", "⌨️", "⚙️", "🧑‍💻"],
@@ -61,6 +62,7 @@ const state = {
   showWarp: true,
   showHeatmap: true,
   showReachOutline: false,
+  showGreaterMelbourne: false,
   showPinHint: true,
   isMobile: false,
   drawerCollapsed: false,
@@ -104,6 +106,7 @@ const statusText = document.getElementById("statusText");
 const warpToggle = document.getElementById("warpToggle");
 const heatmapToggle = document.getElementById("heatmapToggle");
 const outlineToggle = document.getElementById("outlineToggle");
+const greaterMelbourneToggle = document.getElementById("greaterMelbourneToggle");
 const heatmapLegend = document.getElementById("heatmapLegend");
 const heatmapLegendMin = document.getElementById("heatmapLegendMin");
 const heatmapLegendMax = document.getElementById("heatmapLegendMax");
@@ -144,6 +147,7 @@ const mobileReachMeta = document.getElementById("mobileReachMeta");
 const mobileWarpToggle = document.getElementById("mobileWarpToggle");
 const mobileHeatmapToggle = document.getElementById("mobileHeatmapToggle");
 const mobileOutlineToggle = document.getElementById("mobileOutlineToggle");
+const mobileGreaterMelbourneToggle = document.getElementById("mobileGreaterMelbourneToggle");
 const mobileSearchForm = document.getElementById("mobileSearchForm");
 const mobileAddressInput = document.getElementById("mobileAddressInput");
 const mobileSearchButton = document.getElementById("mobileSearchButton");
@@ -789,6 +793,9 @@ function buildViewUrlFragment(
   if (state.showReachOutline) {
     params.set("outline", "1");
   }
+  if (state.showGreaterMelbourne) {
+    params.set("greater", "1");
+  }
 
   const query = params.toString();
   if (isLocalStaticDev()) {
@@ -811,7 +818,8 @@ function parseSharedView() {
   const warp = searchParams.has("warp") ? searchParams.get("warp") !== "0" : null;
   const heatmap = searchParams.has("heatmap") ? searchParams.get("heatmap") !== "0" : null;
   const outline = searchParams.has("outline") ? searchParams.get("outline") !== "0" : null;
-  return { origin, probe, zoom, warp, heatmap, outline };
+  const greater = searchParams.has("greater") ? searchParams.get("greater") !== "0" : null;
+  return { origin, probe, zoom, warp, heatmap, outline, greater };
 }
 
 function replaceBrowserUrl(pathOrQuery = "") {
@@ -878,7 +886,37 @@ function minuteToAreaWeight(minutes) {
   return MIN_AREA_WEIGHT + (1 - t) * (MAX_AREA_WEIGHT - MIN_AREA_WEIGHT);
 }
 
-function defaultMapCenter(bounds = state.data?.meta?.bounds) {
+function activeBoroughs() {
+  if (!state.data?.boroughs) return [];
+  if (state.showGreaterMelbourne) return state.data.boroughs;
+  return state.data.boroughs.filter((borough) => !GREATER_MELBOURNE_ONLY_LGAS.has(borough.name));
+}
+
+function boundsOfPolygons(polygons) {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const polygon of polygons) {
+    for (const ring of polygon) {
+      for (const [x, y] of ring) {
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+      }
+    }
+  }
+  return Number.isFinite(minX) ? [minX, minY, maxX, maxY] : null;
+}
+
+function activeMapBounds() {
+  if (!state.data) return null;
+  if (state.showGreaterMelbourne) return state.data.meta.bounds;
+  return boundsOfPolygons(activeBoroughs().flatMap((borough) => borough.polygons)) || state.data.meta.bounds;
+}
+
+function defaultMapCenter(bounds = activeMapBounds()) {
   if (!bounds) return [0, 0];
   const [minX, minY, maxX, maxY] = bounds;
   return [(minX + maxX) / 2, (minY + maxY) / 2];
@@ -1058,12 +1096,12 @@ function drawPolygonPath(drawCtx, polygon, projectPoint) {
 
 function landMaskPolygons() {
   if (state.data.landMask?.length) return state.data.landMask;
-  return state.data.boroughs.flatMap((borough) => borough.polygons);
+  return activeBoroughs().flatMap((borough) => borough.polygons);
 }
 
 function traceBoroughMaskPath(drawCtx, projectPoint) {
   drawCtx.beginPath();
-  for (const borough of state.data.boroughs) {
+  for (const borough of activeBoroughs()) {
     for (const polygon of borough.polygons) {
       tracePolygonPath(drawCtx, polygon, projectPoint);
     }
@@ -1201,7 +1239,7 @@ function drawCityBasemap(
   }
 
   if (includeBoroughBorders) {
-    for (const borough of state.data.boroughs) {
+    for (const borough of activeBoroughs()) {
       for (const polygon of borough.polygons) {
         drawPolygonPath(drawCtx, polygon, projectPoint);
         drawCtx.strokeStyle = "#4f6987";
@@ -1233,7 +1271,7 @@ function drawBoroughLabels(drawCtx, projectPoint) {
   drawCtx.strokeStyle = "rgba(255,252,247,0.95)";
   drawCtx.lineWidth = 6;
   drawCtx.lineJoin = "round";
-  for (const borough of state.data.boroughs) {
+  for (const borough of activeBoroughs()) {
     const [lx, ly] = projectPoint(borough.label);
     drawCtx.strokeText(borough.name, lx, ly);
     drawCtx.fillText(borough.name, lx, ly);
@@ -1725,7 +1763,8 @@ function drawMap(drawCtx, width, height) {
   const baseTransform = state.transform;
   const warpPoint = state.showWarp && warp ? warp.warpPoint : (point) => point;
   const inverseWarpPoint = warp ? warp.inverseWarpPoint : (point) => point;
-  const warpedBounds = state.showWarp && warp ? warp.warpedBounds : state.data.meta.bounds;
+  const visibleBounds = activeMapBounds() || state.data.meta.bounds;
+  const warpedBounds = state.showGreaterMelbourne && state.showWarp && warp ? warp.warpedBounds : visibleBounds;
   const zoomFocusPoint = state.viewportScale > MIN_VIEWPORT_SCALE ? currentZoomFocusPoint() : null;
   const anchorScreen = zoomFocusPoint
     ? [width / 2, height / 2]
@@ -2206,8 +2245,9 @@ function syncZoomControls() {
 function updateViewportTransform() {
   if (!state.data) return;
   const size = createCanvasBacking(mapCanvas);
+  const bounds = activeMapBounds() || state.data.meta.bounds;
   state.transform = buildTransform(
-    state.data.meta.bounds,
+    bounds,
     size.width,
     size.height,
     PANEL_PADDING,
@@ -2466,8 +2506,19 @@ function handleDesktopPointerCancel(event) {
 }
 
 function withinBounds(point) {
-  const [minX, minY, maxX, maxY] = state.data.meta.bounds;
+  const [minX, minY, maxX, maxY] = activeMapBounds() || state.data.meta.bounds;
   return point[0] >= minX && point[0] <= maxX && point[1] >= minY && point[1] <= maxY;
+}
+
+function setGreaterMelbourneVisibility(showGreaterMelbourne) {
+  state.showGreaterMelbourne = showGreaterMelbourne;
+  greaterMelbourneToggle.checked = state.showGreaterMelbourne;
+  mobileGreaterMelbourneToggle.checked = state.showGreaterMelbourne;
+  state.viewportScale = MIN_VIEWPORT_SCALE;
+  state.viewportCenter = null;
+  state.pinnedScreen = null;
+  syncBrowserUrl();
+  updateViewportTransform();
 }
 
 function syncHeatmapLegend() {
@@ -2684,7 +2735,8 @@ async function init() {
     Boolean(sharedView.probe) ||
     sharedView.warp !== null ||
     sharedView.heatmap !== null ||
-    sharedView.outline !== null;
+    sharedView.outline !== null ||
+    sharedView.greater !== null;
   state.mobileHelpCollapsed = hasSharedViewParams;
   if (sharedView.zoom) {
     state.viewportScale = sharedView.zoom;
@@ -2697,6 +2749,9 @@ async function init() {
   }
   if (sharedView.outline !== null) {
     state.showReachOutline = sharedView.outline;
+  }
+  if (sharedView.greater !== null) {
+    state.showGreaterMelbourne = sharedView.greater;
   }
   if (sharedView.origin) {
     const restoredPoint = lonLatToWorld(sharedView.origin.lon, sharedView.origin.lat);
@@ -2718,6 +2773,11 @@ async function init() {
   warpToggle.checked = state.showWarp;
   heatmapToggle.checked = state.showHeatmap;
   outlineToggle.checked = state.showReachOutline;
+  greaterMelbourneToggle.checked = state.showGreaterMelbourne;
+  mobileWarpToggle.checked = state.showWarp;
+  mobileHeatmapToggle.checked = state.showHeatmap;
+  mobileOutlineToggle.checked = state.showReachOutline;
+  mobileGreaterMelbourneToggle.checked = state.showGreaterMelbourne;
   syncTravelSettingsInputs();
   syncHeatmapLegend();
   syncZoomControls();
@@ -2787,6 +2847,11 @@ async function init() {
     requestDraw();
   });
 
+  greaterMelbourneToggle.addEventListener("change", () => {
+    closeSharePanel();
+    setGreaterMelbourneVisibility(greaterMelbourneToggle.checked);
+  });
+
   mobileHeatmapToggle.addEventListener("change", () => {
     state.showHeatmap = mobileHeatmapToggle.checked;
     heatmapToggle.checked = state.showHeatmap;
@@ -2802,6 +2867,10 @@ async function init() {
     syncBrowserUrl();
     state.dirty = true;
     requestDraw();
+  });
+
+  mobileGreaterMelbourneToggle.addEventListener("change", () => {
+    setGreaterMelbourneVisibility(mobileGreaterMelbourneToggle.checked);
   });
 
   outlineToggle.addEventListener("change", () => {
