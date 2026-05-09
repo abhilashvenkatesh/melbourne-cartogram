@@ -32,7 +32,7 @@ Output: `site/data/commute_map_data.json`
 
 All GTFS files are a static snapshot. The app does not use real-time feeds.
 
-> **Note:** `data/ptv_gtfs.zip` (the full combined PTV GTFS feed, ~218 MB) is excluded from this repository due to GitHub's 100 MB file size limit. Download it directly from the [PTV Developer Portal](https://www.ptv.vic.gov.au/footer/data-and-reporting/datasets/ptv-timetable-api/) and place it at `data/ptv_gtfs.zip` before running the pipeline.
+> **Note:** `data/ptv_gtfs.zip` (~218 MB) and `data/ptv_metro_buses.zip` (~78 MB) are excluded from this repository due to GitHub's file size limits. Download both from the [PTV Developer Portal](https://www.ptv.vic.gov.au/footer/data-and-reporting/datasets/ptv-timetable-api/) and place them in the `data/` folder before running the pipeline.
 
 ## How the travel-time model works
 

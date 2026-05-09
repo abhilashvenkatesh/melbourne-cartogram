@@ -13,6 +13,7 @@ venv/
 env/
 output/
 data/ptv_gtfs.zip
+data/ptv_metro_buses.zip
 .vercel/
 
 *.swp
