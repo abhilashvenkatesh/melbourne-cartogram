@@ -15,6 +15,8 @@ from typing import Dict, Iterable, List, Sequence, Tuple
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
 SITE_DATA_PATH = ROOT / "site" / "data" / "commute_map_data.json"
+SITE_RENDER_PATH = ROOT / "site" / "data" / "map_render.json"
+SITE_COMPUTE_PATH = ROOT / "site" / "data" / "map_compute.json"
 
 BOROUGHS_PATH = DATA_DIR / "melbourne_lga_boundaries.geojson"
 PARKS_PATH = DATA_DIR / "melbourne_parks_osm.json"
@@ -840,6 +842,16 @@ def main() -> None:
     SITE_DATA_PATH.write_text(json.dumps(output, separators=(",", ":")), encoding="utf-8")
     size_mb = SITE_DATA_PATH.stat().st_size / 1024 / 1024
     print(f"Wrote {SITE_DATA_PATH} ({size_mb:.1f} MB)")
+
+    render_keys = {"meta", "boroughs", "externalLand", "parks", "streets", "routes", "stations", "routeStyles"}
+    compute_keys = {"routeStates", "stationStates", "routeWaits", "adjacency", "cells", "mask"}
+    render_output = {key: value for key, value in output.items() if key in render_keys}
+    compute_output = {key: value for key, value in output.items() if key in compute_keys}
+
+    SITE_RENDER_PATH.write_text(json.dumps(render_output, separators=(",", ":")), encoding="utf-8")
+    SITE_COMPUTE_PATH.write_text(json.dumps(compute_output, separators=(",", ":")), encoding="utf-8")
+    print(f"Wrote {SITE_RENDER_PATH} ({SITE_RENDER_PATH.stat().st_size // 1024} KB)")
+    print(f"Wrote {SITE_COMPUTE_PATH} ({SITE_COMPUTE_PATH.stat().st_size // 1024} KB)")
 
 
 if __name__ == "__main__":

@@ -9,13 +9,13 @@ Two artifacts for Melbourne:
 
 ## What it does
 
-### Static SVG (`generate_melbourne_projection.py`)
+### Static SVG (`pipeline/generate_melbourne_projection.py`)
 
 Produces a side-by-side SVG — reference geography on the left, transit-access warped geography on the right. Each grid cell is weighted by walking distance to the nearest train, tram, or bus stop. Cells close to stops expand; cells far from stops compress. Train and tram route shapes are drawn on top.
 
 Output: `output/melbourne_ptv_weighted_projection.svg`
 
-### Interactive site (`build_melbourne_commute_data.py` + `site/`)
+### Interactive site (`pipeline/build_melbourne_commute_data.py` + `site/`)
 
 Builds a compact JSON data bundle consumed by the browser app. The app runs a Dijkstra shortest-path search from a pinned origin across a graph of stops, computing travel times to every grid cell in Melbourne. It renders a heatmap and optionally warps the map to show commute-time distortion.
 
@@ -65,12 +65,12 @@ All GTFS files are a static snapshot. The app does not use real-time feeds.
 ## Requirements
 
 - Python 3 (standard library only — no pip install needed)
-- `pnpm` and Node.js only for running or deploying the Cloudflare Worker
+- Node.js and npm for local preview
 
 ## Generate the static SVG
 
 ```bash
-python3 generate_melbourne_projection.py
+python3 pipeline/generate_melbourne_projection.py
 ```
 
 Output: `output/melbourne_ptv_weighted_projection.svg`
@@ -78,7 +78,7 @@ Output: `output/melbourne_ptv_weighted_projection.svg`
 ## Build the interactive site data
 
 ```bash
-python3 build_melbourne_commute_data.py
+python3 pipeline/build_melbourne_commute_data.py
 ```
 
 Output: `site/data/commute_map_data.json`
@@ -86,38 +86,32 @@ Output: `site/data/commute_map_data.json`
 ## Local preview
 
 ```bash
-python3 -m http.server 8000
+npm run dev
 ```
 
-Then open `http://localhost:8000/site/`
+Then open `http://localhost:3000`
 
 Notes:
 
 - Address search uses OpenStreetMap Nominatim at runtime — needs internet access.
-- Deep-link URLs like `/mel/@-37.81,144.96` are not available on plain static localhost; use query-string sharing instead.
+- Deep-link URLs like `/mel/@-37.81,144.96` work with `npm run dev` but not with plain `python3 -m http.server`.
 
-## Cloudflare Worker deploy
+## Deploy
 
-```bash
-pnpm install
-pnpm run dev      # local preview via Wrangler
-pnpm run deploy   # deploy to Cloudflare
-```
-
-`wrangler.jsonc` bundles `site/` as Worker assets. `src/worker.js` serves the app under a path prefix on the configured domain.
+Deployed via Vercel. Push to `main` to trigger a deploy. `vercel.json` sets `site/` as the output directory and adds a catch-all rewrite so deep-link URLs survive page reload.
 
 ## Project layout
 
 | Path | What it does |
 | --- | --- |
-| [generate_melbourne_projection.py](generate_melbourne_projection.py) | Builds the static SVG cartogram |
-| [build_melbourne_commute_data.py](build_melbourne_commute_data.py) | Builds the interactive site data bundle |
+| [pipeline/generate_melbourne_projection.py](pipeline/generate_melbourne_projection.py) | Builds the static SVG cartogram |
+| [pipeline/build_melbourne_commute_data.py](pipeline/build_melbourne_commute_data.py) | Builds the interactive site data bundle |
 | [site/index.html](site/index.html) | App shell and metadata |
 | [site/app.js](site/app.js) | Interactive map, search, warp, heatmap, sharing |
 | [site/compute-worker.js](site/compute-worker.js) | Web Worker running Dijkstra off the main thread |
 | [site/styles.css](site/styles.css) | Site styles |
 | [site/data/commute_map_data.json](site/data/commute_map_data.json) | Generated site dataset |
-| [src/worker.js](src/worker.js) | Cloudflare Worker entrypoint |
+| [vercel.json](vercel.json) | Vercel deploy config |
 
 ## App features
 
