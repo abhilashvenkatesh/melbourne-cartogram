@@ -12,8 +12,7 @@ __pycache__/
 venv/
 env/
 output/
-data/ptv_gtfs.zip
-data/ptv_metro_buses.zip
+data/ptv_*.zip
 .vercel/
 
 *.swp

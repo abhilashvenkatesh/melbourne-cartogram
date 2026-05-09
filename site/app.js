@@ -48,6 +48,8 @@ const EMOJI_BURST_SETS = {
   maps: ["🗺️", "📍", "🧭", "➡️", "📌"],
   parks: ["🌳", "🌲", "🌿", "🍃", "🌱"],
   anthony: ["🤓", "✨", "🧠", "💫", "🪄"],
+  abhilash: ["🚃", "🗺️", "✨", "📍", "☕"],
+  nyc: ["🚇", "🗽", "🧭", "✨", "📍"],
   twitter: ["🐦", "🕊️", "🐥", "🪽"],
   linkedin: ["💼", "📈", "🤝", "🧠", "📊"],
   coffee: ["☕", "🥤", "🧋", "🍵"],
@@ -2661,7 +2663,7 @@ async function loadWithFallback(preferredUrl, fallbackUrl) {
 }
 
 async function init() {
-  // Phase 1: load rendering data (boroughs, streets, parks, stations, routes) — shows basemap fast
+  // Phase 1: load rendering data (LGAs, streets, parks, stations, routes) — shows basemap fast
   statusText.textContent = "Loading map…";
   const renderData = await loadWithFallback(RENDER_DATA_URL, DATA_URL);
   state.data = renderData;
@@ -2673,7 +2675,6 @@ async function init() {
   state.baseMapCache = null;
   state.ready = true; // show basemap immediately
 
-  const manhattan = state.data.boroughs.find((borough) => borough.name === "Melbourne");
   state.cursorPoint = null;
   state.originPoint = null;
 

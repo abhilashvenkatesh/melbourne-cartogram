@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Build compact data assets for the interactive commute-time website."""
+"""Legacy NYC data builder kept as upstream reference.
+
+Use build_melbourne_commute_data.py for the Melbourne commute map.
+"""
 
 from __future__ import annotations
 

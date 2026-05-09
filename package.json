@@ -2,6 +2,12 @@
   "name": "melbourne-cartogram",
   "private": true,
   "scripts": {
-    "dev": "npx serve site"
+    "dev": "serve site",
+    "build:data": "python3 pipeline/build_melbourne_commute_data.py",
+    "build:svg": "python3 pipeline/generate_melbourne_projection.py",
+    "check:data": "python3 pipeline/validate_site_data.py"
+  },
+  "devDependencies": {
+    "serve": "^14.2.4"
   }
 }

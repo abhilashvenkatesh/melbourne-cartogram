@@ -34,7 +34,7 @@ Output: `site/data/commute_map_data.json`
 
 All GTFS files are a static snapshot. The app does not use real-time feeds.
 
-> **Note:** `data/ptv_gtfs.zip` (~218 MB) and `data/ptv_metro_buses.zip` (~78 MB) are excluded from this repository due to GitHub's file size limits. Download both from the [PTV Developer Portal](https://www.ptv.vic.gov.au/footer/data-and-reporting/datasets/ptv-timetable-api/) and place them in the `data/` folder before running the pipeline.
+> **Note:** GTFS zip snapshots can be large and may not all be present in a fresh clone. Download `ptv_metro_trains.zip`, `ptv_trams.zip`, and `ptv_metro_buses.zip` from the [PTV Developer Portal](https://www.ptv.vic.gov.au/footer/data-and-reporting/datasets/ptv-timetable-api/) and place them in the `data/` folder before running the pipeline.
 
 ## How the travel-time model works
 
@@ -83,9 +83,18 @@ python3 pipeline/build_melbourne_commute_data.py
 
 Output: `site/data/commute_map_data.json`
 
+## Validate generated site data
+
+```bash
+python3 pipeline/validate_site_data.py
+```
+
+Checks the generated JSON contracts used by the browser app, including split render/compute bundles, graph references, grid masks, station access links, and non-finite numeric values.
+
 ## Local preview
 
 ```bash
+npm install
 npm run dev
 ```
 
@@ -106,6 +115,7 @@ Deployed via Vercel. Push to `main` to trigger a deploy. `vercel.json` sets `sit
 | --- | --- |
 | [pipeline/generate_melbourne_projection.py](pipeline/generate_melbourne_projection.py) | Builds the static SVG cartogram |
 | [pipeline/build_melbourne_commute_data.py](pipeline/build_melbourne_commute_data.py) | Builds the interactive site data bundle |
+| [pipeline/validate_site_data.py](pipeline/validate_site_data.py) | Validates generated JSON data contracts |
 | [site/index.html](site/index.html) | App shell and metadata |
 | [site/app.js](site/app.js) | Interactive map, search, warp, heatmap, sharing |
 | [site/compute-worker.js](site/compute-worker.js) | Web Worker running Dijkstra off the main thread |
