@@ -2,7 +2,7 @@
 
 **Live site: [melbtransit.avbuilds.dev](https://melbtransit.avbuilds.dev/)**
 
-![Melbourne Cartogram](site/site-pic.png)
+![Melbourne Cartogram](site/assets/site-pic.png)
 
 Two artifacts for Melbourne:
 
