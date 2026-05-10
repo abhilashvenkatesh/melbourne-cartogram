@@ -1,6 +1,6 @@
-const DATA_URL = new URL("./data/commute_map_data.json", import.meta.url).toString();
-const RENDER_DATA_URL = new URL("./data/map_render.json", import.meta.url).toString();
-const COMPUTE_DATA_URL = new URL("./data/map_compute.json", import.meta.url).toString();
+const DATA_URL = new URL("../data/commute_map_data.json", import.meta.url).toString();
+const RENDER_DATA_URL = new URL("../data/map_render.json", import.meta.url).toString();
+const COMPUTE_DATA_URL = new URL("../data/map_compute.json", import.meta.url).toString();
 const WORKER_URL = new URL("./compute-worker.js", import.meta.url).toString();
 const DEFAULT_TRANSIT_TIME_MINUTES = 4;
 const DEFAULT_MAX_TIME_MINUTES = 60;
@@ -202,10 +202,10 @@ const searchUis = [
   },
 ];
 
-shareXIcon.src = new URL("./x.png", import.meta.url).toString();
-shareFacebookIcon.src = new URL("./Facebook.png", import.meta.url).toString();
-shareInstagramIcon.src = new URL("./Instagram.png", import.meta.url).toString();
-shareLinkedInIcon.src = new URL("./LinkedIn.png", import.meta.url).toString();
+shareXIcon.src = new URL("../assets/social/x.png", import.meta.url).toString();
+shareFacebookIcon.src = new URL("../assets/social/Facebook.png", import.meta.url).toString();
+shareInstagramIcon.src = new URL("../assets/social/Instagram.png", import.meta.url).toString();
+shareLinkedInIcon.src = new URL("../assets/social/LinkedIn.png", import.meta.url).toString();
 
 function loadModePictograms() {
   for (const [mode, filename] of Object.entries(MODE_PICTOGRAM_SOURCES)) {
