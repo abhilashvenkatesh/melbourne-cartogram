@@ -979,13 +979,17 @@ canvas {
   border-top: 1px solid rgba(23, 48, 77, 0.1);
 }
 
-.footer-links,
-.footer-credit {
+.footer-links {
   display: flex;
   align-items: center;
   gap: 10px 14px;
   flex-wrap: wrap;
   margin: 0;
+}
+
+.footer-credit {
+  margin: 0;
+  line-height: 1.5;
 }
 
 .footer-strip a {
