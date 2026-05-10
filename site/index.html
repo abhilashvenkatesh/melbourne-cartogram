@@ -27,7 +27,36 @@
       name="twitter:description"
       content="Explore Melbourne and Greater Melbourne by transit commute time with trains, trams, frequent buses, V/Line, route-mode chips, and reachability scores."
     />
+    <meta name="twitter:image" content="https://melbtransit.avbuilds.dev/site-pic.png" />
     <meta name="twitter:image:alt" content="Preview of the Melbourne Commute POV transit cartogram." />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Melbourne Commute POV",
+        "url": "https://melbtransit.avbuilds.dev/",
+        "applicationCategory": "TravelApplication",
+        "operatingSystem": "Any",
+        "description": "An interactive Melbourne public transport commute-time cartogram for exploring train, tram, bus, walking, and V/Line travel times.",
+        "creator": {
+          "@type": "Person",
+          "name": "Abhilash Venkatesh",
+          "url": "https://www.linkedin.com/in/abhilash93/"
+        },
+        "isBasedOn": [
+          {
+            "@type": "Dataset",
+            "name": "PTV GTFS Transit Schedules and Routes",
+            "url": "https://www.ptv.vic.gov.au/footer/data-and-reporting/datasets/gtfs/"
+          },
+          {
+            "@type": "Dataset",
+            "name": "OpenStreetMap boundaries, streets, and parks",
+            "url": "https://www.openstreetmap.org/"
+          }
+        ]
+      }
+    </script>
     <script>
       (function () {
         const path = window.location.pathname;
@@ -409,6 +438,11 @@
       </main>
 
       <section class="notes">
+        <p>
+          Melbourne Commute POV is an interactive Melbourne public transport map that estimates
+          commute time from a chosen origin across the city, including train, tram, bus, walking,
+          and V/Line connections.
+        </p>
         <p>
           Destination labels show the estimated travel time followed by mode chips, such as Walk,
           Train, Tram, Bus, or V/Line, summarising the services used by the fastest path.
