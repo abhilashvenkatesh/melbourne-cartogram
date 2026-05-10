@@ -68,16 +68,10 @@
             : path.slice(0, path.lastIndexOf("/") + 1);
         window.__ASSET_BASE__ = assetBase;
 
-        const favicon = document.createElement("link");
-        favicon.rel = "icon";
-        favicon.type = "image/svg+xml";
-        favicon.href = `${assetBase}favicon.svg`;
-        document.head.appendChild(favicon);
-
-        const stylesheet = document.createElement("link");
-        stylesheet.rel = "stylesheet";
-        stylesheet.href = `${assetBase}styles.css`;
-        document.head.appendChild(stylesheet);
+        document.write(
+          `<link rel="icon" type="image/svg+xml" href="${assetBase}favicon.svg">` +
+            `<link rel="stylesheet" href="${assetBase}styles.css">`
+        );
       })();
     </script>
   </head>
