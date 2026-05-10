@@ -690,6 +690,7 @@ function isMobileLayout() {
 
 function setDrawerCollapsed(collapsed) {
   state.drawerCollapsed = collapsed;
+  panelCard?.classList.toggle("mobile-drawer-open", state.isMobile && !collapsed);
   if (!mobileSheet || !mobileSheetToggle || !mobileSheetBody) return;
   state.mobileDrawerOffset = 0;
   mobileSheet.style.removeProperty("--mobile-sheet-offset");
@@ -2406,6 +2407,7 @@ function setViewportScale(nextScale) {
 
 function resize() {
   state.isMobile = isMobileLayout();
+  panelCard?.classList.toggle("mobile-drawer-open", state.isMobile && !state.drawerCollapsed);
   updateViewportTransform();
 }
 
@@ -2465,14 +2467,14 @@ function beginPinGesture(pointerId, screenPoint, worldPoint, hitRadius) {
   state.mobileGestureMoved = false;
   state.mobileDragTarget = hitPinTarget(screenPoint, hitRadius) || (!state.originPoint ? "new-origin" : "new-probe");
 
-  if (state.mobileDragTarget === "origin" || state.mobileDragTarget === "new-origin") {
+  if (state.mobileDragTarget === "origin") {
+    state.pinned = true;
+  } else if (state.mobileDragTarget === "new-origin") {
     state.originLabel = null;
     state.originPoint = worldPoint;
-    state.pinned = state.mobileDragTarget === "origin" ? true : false;
-    if (state.mobileDragTarget === "new-origin") {
-      clearProbePoint();
-    }
-  } else if (state.mobileDragTarget === "probe" || state.mobileDragTarget === "new-probe") {
+    state.pinned = false;
+    clearProbePoint();
+  } else if (state.mobileDragTarget === "new-probe") {
     setProbePoint(worldPoint);
   }
 
@@ -2532,11 +2534,9 @@ function handleMobilePointerUp(event) {
   const dragTarget = state.mobileDragTarget;
   const moved = state.mobileGestureMoved;
 
-  if (dragTarget === "origin" && !moved) {
-    clearPinnedOrigin();
-  } else if (dragTarget === "probe" && !moved) {
-    clearProbePoint();
+  if ((dragTarget === "origin" || dragTarget === "probe") && !moved) {
     state.dirty = true;
+    syncMobileSheet();
     requestDraw();
   } else {
     if (dragTarget === "origin" || dragTarget === "new-origin") {
