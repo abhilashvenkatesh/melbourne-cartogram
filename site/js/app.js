@@ -796,14 +796,6 @@ function formatCoordinatePair(point) {
   return `${formatCoordinate(lat)},${formatCoordinate(lon)}`;
 }
 
-function originPathForPoint(point) {
-  return `@${formatCoordinatePair(point)}`;
-}
-
-function originQueryForPoint(point) {
-  return `?origin=${formatCoordinatePair(point)}`;
-}
-
 function parseCoordinatePair(value) {
   if (!value) return null;
   const match = value.match(/^@?(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/);
@@ -823,24 +815,13 @@ function getBasePath() {
   return window.__ASSET_BASE__ || "/";
 }
 
-function isLocalStaticDev() {
-  return (
-    ["localhost", "127.0.0.1"].includes(window.location.hostname) &&
-    getBasePath().startsWith("/site/")
-  );
-}
-
-function getCoordinateUrlFragment(point) {
-  return isLocalStaticDev() ? originQueryForPoint(point) : originPathForPoint(point);
-}
-
 function buildViewUrlFragment(
   originPoint = state.pinnedPoint || state.originPoint,
   probePoint = state.probePoint,
   zoomLevel = state.viewportScale,
 ) {
   const params = new URLSearchParams();
-  if (isLocalStaticDev() && originPoint) {
+  if (originPoint) {
     params.set("origin", formatCoordinatePair(originPoint));
   }
   if (probePoint) {
@@ -863,12 +844,7 @@ function buildViewUrlFragment(
   }
 
   const query = params.toString();
-  if (isLocalStaticDev()) {
-    return query ? `?${query}` : "";
-  }
-
-  const path = originPoint ? originPathForPoint(originPoint) : "";
-  return query ? `${path}?${query}` : path;
+  return query ? `?${query}` : "";
 }
 
 function parseSharedView() {

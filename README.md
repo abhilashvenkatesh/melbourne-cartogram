@@ -106,11 +106,11 @@ Then open `http://localhost:3000`
 Notes:
 
 - Address search uses OpenStreetMap Nominatim at runtime — needs internet access.
-- Deep-link URLs like `/mel/@-37.81,144.96` work with `npm run dev` but not with plain `python3 -m http.server`.
+- Deep-link URLs use query parameters, for example `/?origin=-37.81,144.96`.
 
 ## Deploy
 
-Deployed via Vercel. Push to `main` to trigger a deploy. `vercel.json` sets `site/` as the output directory and adds a catch-all rewrite so deep-link URLs survive page reload.
+Deployed via Vercel. Push to `main` to trigger a deploy. `vercel.json` sets `site/` as the output directory and serves the single-page app.
 
 Google Analytics is injected during the GitHub Actions deploy. Set the repository variable `GA_MEASUREMENT_ID` to your GA4 measurement ID, for example `G-QK6YCRDZV8`. If the variable is not present, the workflow also accepts a repository secret with the same name.
 
