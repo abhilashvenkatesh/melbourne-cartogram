@@ -31,7 +31,7 @@ const DESKTOP_PIN_TAP_SLOP = 6;
 const DESKTOP_PIN_HIT_RADIUS = 18;
 const HEATMAP_RESOLUTION_SCALE = 2;
 const HEATMAP_BLUR_PX = 7;
-const HEATMAP_ALPHA = 0.8;
+const HEATMAP_ALPHA = 0.6;
 const WARP_INFLUENCE_RADIUS = 8;
 const WARP_SIGMA_CELLS = 3.4;
 const WARP_DISPLACEMENT_SCALE = 1.0;
@@ -932,8 +932,8 @@ function shortOriginLabel(label) {
   if (!label) return "";
   if (label === "My location") return label;
   const primary = label.split(",")[0].trim();
-  if (/^\d/.test(primary)) return primary;
-  return primary.toLowerCase().startsWith("near ") ? primary : `Near ${primary}`;
+  const text = /^\d/.test(primary) ? primary : primary.toLowerCase().startsWith("near ") ? primary : `Near ${primary}`;
+  return state.isMobile && text.length > 32 ? text.slice(0, 30).trimEnd() + "…" : text;
 }
 
 function heatmapColor(minutes, alpha = 0.56) {
@@ -1958,13 +1958,6 @@ function drawMap(drawCtx, width, height) {
   const visibleBounds = activeMapBounds() || state.data.meta.bounds;
   const warpedBounds = state.showGreaterMelbourne && state.showWarp && warp ? warp.warpedBounds : visibleBounds;
   const zoomFocusPoint = state.viewportScale > MIN_VIEWPORT_SCALE ? currentZoomFocusPoint() : null;
-  const anchorScreen = zoomFocusPoint
-    ? [width / 2, height / 2]
-    : state.showWarp && state.pinned
-      ? state.pinnedScreen
-      : null;
-  const anchorWorldPoint = zoomFocusPoint || state.originPoint;
-  const anchoredOrigin = baseTransform.toScreen(warpPoint(anchorWorldPoint));
   const [warpMinX, warpMinY, warpMaxX, warpMaxY] = warpedBounds;
   const topLeft = baseTransform.toScreen([warpMinX, warpMaxY]);
   const bottomRight = baseTransform.toScreen([warpMaxX, warpMinY]);
@@ -1972,12 +1965,31 @@ function drawMap(drawCtx, width, height) {
   const topBound = topLeft[1];
   const rightBound = bottomRight[0];
   const bottomBound = bottomRight[1];
-  const desiredDx = anchorScreen ? anchorScreen[0] - anchoredOrigin[0] : 0;
-  const desiredDy = anchorScreen ? anchorScreen[1] - anchoredOrigin[1] : 0;
   const minDx = PANEL_PADDING - leftBound;
   const maxDx = width - PANEL_PADDING - rightBound;
   const minDy = PANEL_PADDING - topBound;
   const maxDy = height - PANEL_PADDING - bottomBound;
+
+  let desiredDx, desiredDy;
+  if (zoomFocusPoint) {
+    const anchoredOrigin = baseTransform.toScreen(warpPoint(zoomFocusPoint));
+    desiredDx = width / 2 - anchoredOrigin[0];
+    desiredDy = height / 2 - anchoredOrigin[1];
+  } else if (state.showWarp && state.pinned && state.pinnedScreen) {
+    const anchoredOrigin = baseTransform.toScreen(warpPoint(state.originPoint));
+    desiredDx = state.pinnedScreen[0] - anchoredOrigin[0];
+    desiredDy = state.pinnedScreen[1] - anchoredOrigin[1];
+  } else if (state.showWarp && warp) {
+    const vp = state.isMobile ? MOBILE_VIEWPORT_PADDING : { top: PANEL_PADDING, right: PANEL_PADDING, bottom: PANEL_PADDING, left: PANEL_PADDING };
+    const targetCX = vp.left + (width - vp.left - vp.right) / 2;
+    const targetCY = vp.top + (height - vp.top - vp.bottom) / 2;
+    desiredDx = targetCX - (leftBound + rightBound) / 2;
+    desiredDy = targetCY - (topBound + bottomBound) / 2;
+  } else {
+    desiredDx = 0;
+    desiredDy = 0;
+  }
+
   const dx = zoomFocusPoint ? desiredDx : clampToRange(desiredDx, minDx, maxDx);
   const dy = zoomFocusPoint ? desiredDy : clampToRange(desiredDy, minDy, maxDy);
   const transform = offsetTransform(baseTransform, dx, dy);
@@ -2093,7 +2105,8 @@ function drawHoverTooltip(drawCtx, screenPoint, label) {
   }
   const [sx, sy] = screenPoint;
   drawCtx.save();
-  drawCtx.font = '700 13px "Avenir Next", "Helvetica Neue", Helvetica, sans-serif';
+  const fontSize = state.isMobile ? 11 : 13;
+  drawCtx.font = `700 ${fontSize}px "Avenir Next", "Helvetica Neue", Helvetica, sans-serif`;
   drawCtx.textAlign = "center";
   drawCtx.textBaseline = "middle";
 
@@ -2118,7 +2131,8 @@ function drawCompactTravelTooltip(drawCtx, screenPoint, summary) {
   const [sx, sy] = screenPoint;
   const modes = summary.modes || [];
   drawCtx.save();
-  drawCtx.font = '700 13px "Avenir Next", "Helvetica Neue", Helvetica, sans-serif';
+  const fontSize = state.isMobile ? 11 : 13;
+  drawCtx.font = `700 ${fontSize}px "Avenir Next", "Helvetica Neue", Helvetica, sans-serif`;
   drawCtx.textBaseline = "middle";
 
   const gap = 6;
@@ -2178,7 +2192,8 @@ function drawPinnedLabel(drawCtx, screenPoint, label, options = {}) {
   } = options;
   const [sx, sy] = screenPoint;
   drawCtx.save();
-  drawCtx.font = '700 13px "Avenir Next", "Helvetica Neue", Helvetica, sans-serif';
+  const fontSize = state.isMobile ? 11 : 13;
+  drawCtx.font = `700 ${fontSize}px "Avenir Next", "Helvetica Neue", Helvetica, sans-serif`;
   drawCtx.textAlign = "left";
   drawCtx.textBaseline = "middle";
 
