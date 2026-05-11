@@ -96,6 +96,7 @@ const state = {
   transform: null,
   currentRender: null,
   baseMapCache: null,
+  heatmapCache: null,
   travelSettings: null,
   travelSettingsDefaults: null,
   dynamicAdjacency: null,
@@ -105,6 +106,7 @@ const state = {
   workerReady: false,
   workerPending: false,
   workerPendingKey: null,
+  drawFramePending: false,
   dirty: true,
 };
 
@@ -343,6 +345,7 @@ function syncTravelSettingsInputs() {
 function applyTravelSettings(nextSettings, { persist = true } = {}) {
   state.travelSettings = sanitizeTravelSettings(nextSettings);
   state.warpCache = null;
+  state.heatmapCache = null;
   if (state.workerReady) {
     state.computeWorker.postMessage({ type: "updateSettings", travelSettings: state.travelSettings });
   }
@@ -1029,6 +1032,9 @@ function buildTransform(bounds, width, height, padding = PANEL_PADDING, zoom = 1
 function offsetTransform(baseTransform, dx, dy) {
   return {
     scale: baseTransform.scale,
+    baseScale: baseTransform.baseScale,
+    center: baseTransform.center,
+    cacheKey: `${baseTransform.cacheKey}:${dx.toFixed(2)}:${dy.toFixed(2)}`,
     toScreen(point) {
       const [sx, sy] = baseTransform.toScreen(point);
       return [sx + dx, sy + dy];
@@ -1646,10 +1652,12 @@ function handleWorkerMessage(event) {
     const { warpPoint, inverseWarpPoint } = makeWarpFunctions(result.warpNodes, result.gridInfo);
     const fullResult = {
       ...result,
+      cacheKey: key,
       warpPoint,
       inverseWarpPoint,
     };
     state.warpCache = { key, result: fullResult };
+    state.heatmapCache = null;
     state.dirty = true;
     requestDraw();
     return;
@@ -1661,6 +1669,24 @@ function handleWorkerMessage(event) {
 function drawHeatmap(drawCtx, warp, transform, useWarpGeometry = true) {
   const { gridCols, gridRows, bounds } = state.data.meta;
   const { width, height } = mapCanvas.getBoundingClientRect();
+  const cacheKey = [
+    warp.cacheKey ?? "",
+    useWarpGeometry ? "warped" : "flat",
+    transform.cacheKey ?? "",
+    width.toFixed(1),
+    height.toFixed(1),
+    state.showGreaterMelbourne ? "greater" : "core",
+  ].join(":");
+  if (state.heatmapCache?.key === cacheKey) {
+    drawCtx.save();
+    drawCtx.globalCompositeOperation = "multiply";
+    drawCtx.globalAlpha = HEATMAP_ALPHA;
+    drawCtx.imageSmoothingEnabled = true;
+    drawCtx.drawImage(state.heatmapCache.canvas, 0, 0, width, height);
+    drawCtx.restore();
+    return;
+  }
+
   const scale = HEATMAP_RESOLUTION_SCALE;
   const rawCanvas = document.createElement("canvas");
   rawCanvas.width = Math.max(1, Math.round(width * scale));
@@ -1723,6 +1749,7 @@ function drawHeatmap(drawCtx, warp, transform, useWarpGeometry = true) {
   maskedCtx.clip("evenodd");
   maskedCtx.drawImage(blurredCanvas, 0, 0, width, height);
   maskedCtx.restore();
+  state.heatmapCache = { key: cacheKey, canvas: maskedCanvas };
 
   drawCtx.save();
   drawCtx.globalCompositeOperation = "multiply";
@@ -1864,7 +1891,7 @@ function drawMap(drawCtx, width, height) {
   const transform = offsetTransform(baseTransform, dx, dy);
   const projectPoint = (point) => transform.toScreen(warpPoint(point));
   const externalLandProjectPoint = (point) => transform.toScreen(point);
-  const lineCurveOptions = state.showWarp
+  const lineCurveOptions = state.showWarp && warp
     ? {
         streetCurveTolerance: WARP_LINE_CURVE_TOLERANCE_PX,
         routeCurveTolerance: WARP_LINE_CURVE_TOLERANCE_PX,
@@ -1886,10 +1913,14 @@ function drawMap(drawCtx, width, height) {
   syncReachabilityScore(warp?.reachability ?? null);
 
   drawExternalLand(drawCtx, externalLandProjectPoint);
-  drawCityBasemap(drawCtx, projectPoint, {
-    includeBoroughBorders: !state.showWarp,
-    ...lineCurveOptions,
-  });
+  if (state.showWarp && warp) {
+    drawWarpedBaseMap(drawCtx, width, height, warp, baseTransform, transform);
+  } else {
+    drawCityBasemap(drawCtx, projectPoint, {
+      includeBoroughBorders: !(state.showWarp && warp),
+      ...lineCurveOptions,
+    });
+  }
 
   if (state.showHeatmap && warp) {
     drawHeatmap(drawCtx, warp, transform, state.showWarp);
@@ -2362,9 +2393,12 @@ function toggleSharePanel() {
 }
 
 function requestDraw() {
-  if (!state.ready || !state.dirty) return;
-  state.dirty = false;
+  if (!state.ready || state.drawFramePending) return;
+  state.drawFramePending = true;
   window.requestAnimationFrame(() => {
+    state.drawFramePending = false;
+    if (!state.dirty) return;
+    state.dirty = false;
     const { width, height } = mapCanvas.getBoundingClientRect();
     drawMap(ctx, width, height);
   });
@@ -2389,6 +2423,7 @@ function updateViewportTransform() {
     activeViewportCenter(),
   );
   state.baseMapCache = null;
+  state.heatmapCache = null;
   state.dirty = true;
   syncZoomControls();
   syncMobileSheet();
@@ -2858,6 +2893,7 @@ async function init() {
   state.dynamicAdjacency = null;
   state.isMobile = isMobileLayout();
   state.baseMapCache = null;
+  state.heatmapCache = null;
   state.ready = true; // show basemap immediately
 
   state.cursorPoint = null;
