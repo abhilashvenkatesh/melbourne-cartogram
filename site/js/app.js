@@ -2018,6 +2018,7 @@ function drawMap(drawCtx, width, height) {
 
   drawExternalLand(drawCtx, externalLandProjectPoint);
   if (state.showWarp && warp) {
+    drawCityBasemap(drawCtx, (point) => transform.toScreen(point), { includeBoroughBorders: false });
     drawWarpedBaseMap(drawCtx, width, height, warp, baseTransform, transform);
   } else {
     drawCityBasemap(drawCtx, projectPoint, {
