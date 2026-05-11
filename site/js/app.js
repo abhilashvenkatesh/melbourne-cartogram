@@ -2545,7 +2545,10 @@ function handleMobilePointerUp(event) {
   const dragTarget = state.mobileDragTarget;
   const moved = state.mobileGestureMoved;
 
-  if ((dragTarget === "origin" || dragTarget === "probe") && !moved) {
+  if (dragTarget === "origin" && !moved) {
+    clearPinnedOrigin();
+  } else if (dragTarget === "probe" && !moved) {
+    clearProbePoint();
     state.dirty = true;
     syncMobileSheet();
     requestDraw();
