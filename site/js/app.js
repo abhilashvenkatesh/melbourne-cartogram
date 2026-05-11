@@ -23,6 +23,9 @@ const WEIGHT_BLUR_RADIUS = 2;
 const HOVER_DEADBAND = 14;
 const MOBILE_PIN_TAP_SLOP = 10;
 const MOBILE_PIN_HIT_RADIUS = 26;
+const MOBILE_BOROUGH_LABEL_BASE_LIMIT = 8;
+const MOBILE_BOROUGH_LABEL_ZOOM_BONUS = 2;
+const MOBILE_BOROUGH_LABEL_MIN_GAP = 20;
 const DESKTOP_PIN_TAP_SLOP = 6;
 const DESKTOP_PIN_HIT_RADIUS = 18;
 const HEATMAP_RESOLUTION_SCALE = 2;
@@ -48,6 +51,32 @@ const MOBILE_DRAWER_SWIPE_THRESHOLD_PX = 36;
 const METERS_PER_MINUTE_PER_MPH = 26.8224;
 const SETTINGS_STORAGE_KEY = "mel-cartogram-settings-v1";
 const GREATER_MELBOURNE_ONLY_LGAS = new Set(["Cardinia", "Mornington Peninsula", "Yarra Ranges"]);
+const MOBILE_BOROUGH_LABEL_PRIORITY = new Map([
+  ["Melbourne", 100],
+  ["Yarra", 94],
+  ["Port Phillip", 90],
+  ["Stonnington", 86],
+  ["Boroondara", 82],
+  ["Merri-bek", 78],
+  ["Darebin", 74],
+  ["Moonee Valley", 70],
+  ["Maribyrnong", 66],
+  ["Glen Eira", 62],
+  ["Monash", 58],
+  ["Whitehorse", 54],
+  ["Banyule", 50],
+  ["Hobsons Bay", 46],
+  ["Brimbank", 42],
+  ["Greater Dandenong", 38],
+  ["Kingston", 34],
+  ["Manningham", 30],
+  ["Hume", 26],
+  ["Wyndham", 22],
+  ["Casey", 18],
+  ["Mornington Peninsula", 14],
+  ["Yarra Ranges", 10],
+  ["Cardinia", 6],
+]);
 const MODE_PICTOGRAM_SOURCES = {
   Walk: "PICTO_MODE_Walking.svg",
   Train: "PICTO_MODE_Train.svg",
@@ -1334,16 +1363,74 @@ function drawStations(drawCtx, projectPoint) {
   }
 }
 
-function drawBoroughLabels(drawCtx, projectPoint) {
-  drawCtx.font = '700 15px "Avenir Next", "Helvetica Neue", Helvetica, sans-serif';
+function doLabelBoxesOverlap(a, b, gap = 0) {
+  return !(
+    a.right + gap < b.left ||
+    a.left - gap > b.right ||
+    a.bottom + gap < b.top ||
+    a.top - gap > b.bottom
+  );
+}
+
+function visibleBoroughLabels(drawCtx, projectPoint) {
+  const canvasBounds = drawCtx.canvas.getBoundingClientRect();
+  const screenWidth = canvasBounds.width || drawCtx.canvas.width;
+  const screenHeight = canvasBounds.height || drawCtx.canvas.height;
+  const maxLabels = Math.min(
+    activeBoroughs().length,
+    Math.round(MOBILE_BOROUGH_LABEL_BASE_LIMIT + (state.viewportScale - 1) * MOBILE_BOROUGH_LABEL_ZOOM_BONUS),
+  );
+  const selectedBoxes = [];
+  const labels = activeBoroughs()
+    .map((borough, index) => {
+      const [x, y] = projectPoint(borough.label);
+      const metrics = drawCtx.measureText(borough.name);
+      const width = metrics.width + 12;
+      const height = 16;
+      return {
+        borough,
+        index,
+        x,
+        y,
+        priority: MOBILE_BOROUGH_LABEL_PRIORITY.get(borough.name) ?? 0,
+        box: {
+          left: x - width / 2,
+          right: x + width / 2,
+          top: y - height / 2,
+          bottom: y + height / 2,
+        },
+      };
+    })
+    .filter(({ box }) => box.right >= 0 && box.left <= screenWidth && box.bottom >= 0 && box.top <= screenHeight)
+    .sort((a, b) => b.priority - a.priority || a.index - b.index);
+
+  const selectedLabels = [];
+  for (const label of labels) {
+    if (selectedLabels.length >= maxLabels) break;
+    if (selectedBoxes.some((box) => doLabelBoxesOverlap(label.box, box, MOBILE_BOROUGH_LABEL_MIN_GAP))) continue;
+    selectedLabels.push(label);
+    selectedBoxes.push(label.box);
+  }
+
+  return selectedLabels.sort((a, b) => a.index - b.index);
+}
+
+function drawBoroughLabels(drawCtx, projectPoint, { compact = state.isMobile } = {}) {
+  drawCtx.font = compact
+    ? '700 12px "Avenir Next", "Helvetica Neue", Helvetica, sans-serif'
+    : '700 15px "Avenir Next", "Helvetica Neue", Helvetica, sans-serif';
   drawCtx.textAlign = "center";
   drawCtx.textBaseline = "middle";
   drawCtx.fillStyle = "#17304d";
   drawCtx.strokeStyle = "rgba(255,252,247,0.95)";
-  drawCtx.lineWidth = 6;
+  drawCtx.lineWidth = compact ? 4.5 : 6;
   drawCtx.lineJoin = "round";
-  for (const borough of activeBoroughs()) {
-    const [lx, ly] = projectPoint(borough.label);
+  const labels = compact
+    ? visibleBoroughLabels(drawCtx, projectPoint)
+    : activeBoroughs().map((borough) => ({ borough, x: null, y: null }));
+  for (const label of labels) {
+    const borough = label.borough;
+    const [lx, ly] = label.x === null ? projectPoint(borough.label) : [label.x, label.y];
     drawCtx.strokeText(borough.name, lx, ly);
     drawCtx.fillText(borough.name, lx, ly);
   }
