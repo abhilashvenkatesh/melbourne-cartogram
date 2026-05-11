@@ -10,6 +10,13 @@ const MIN_VIEWPORT_SCALE = 1;
 const MAX_VIEWPORT_SCALE = 4;
 const VIEWPORT_ZOOM_STEP = 1.35;
 const PANEL_PADDING = 18;
+const MOBILE_VIEWPORT_PADDING = {
+  top: 14,
+  right: 14,
+  bottom: 180,
+  left: 14,
+};
+const MOBILE_VIEWPORT_Y_OFFSET_RATIO = -0.04;
 const ROUTE_LINE_WIDTH = 2.2;
 const WEIGHT_BLUR_PASSES = 2;
 const WEIGHT_BLUR_RADIUS = 2;
@@ -978,17 +985,37 @@ function activeViewportCenter() {
   return currentZoomFocusPoint();
 }
 
+function normalizeViewportPadding(padding) {
+  if (typeof padding === "number") {
+    return {
+      top: padding,
+      right: padding,
+      bottom: padding,
+      left: padding,
+    };
+  }
+  return {
+    top: padding.top ?? 0,
+    right: padding.right ?? 0,
+    bottom: padding.bottom ?? 0,
+    left: padding.left ?? 0,
+  };
+}
+
 function buildTransform(bounds, width, height, padding = PANEL_PADDING, zoom = 1, centerPoint = null) {
   const [minX, minY, maxX, maxY] = bounds;
+  const viewportPadding = normalizeViewportPadding(padding);
   const spanX = maxX - minX;
   const spanY = maxY - minY;
-  const baseScale = Math.min((width - padding * 2) / spanX, (height - padding * 2) / spanY);
+  const availableWidth = Math.max(1, width - viewportPadding.left - viewportPadding.right);
+  const availableHeight = Math.max(1, height - viewportPadding.top - viewportPadding.bottom);
+  const baseScale = Math.min(availableWidth / spanX, availableHeight / spanY);
   const scale = baseScale * zoom;
   const [rawCenterX, rawCenterY] = centerPoint || defaultMapCenter(bounds);
   const centerX = clamp(rawCenterX, minX, maxX);
   const centerY = clamp(rawCenterY, minY, maxY);
-  const offsetX = width / 2;
-  const offsetY = height / 2;
+  const offsetX = viewportPadding.left + availableWidth / 2;
+  const offsetY = viewportPadding.top + availableHeight / 2;
 
   return {
     scale,
@@ -2390,14 +2417,18 @@ function updateViewportTransform() {
   if (!state.data) return;
   const size = createCanvasBacking(mapCanvas);
   const bounds = activeMapBounds() || state.data.meta.bounds;
-  state.transform = buildTransform(
+  const viewportPadding = state.isMobile ? MOBILE_VIEWPORT_PADDING : PANEL_PADDING;
+  const baseTransform = buildTransform(
     bounds,
     size.width,
     size.height,
-    PANEL_PADDING,
+    viewportPadding,
     state.viewportScale,
     activeViewportCenter(),
   );
+  state.transform = state.isMobile
+    ? offsetTransform(baseTransform, 0, size.height * MOBILE_VIEWPORT_Y_OFFSET_RATIO)
+    : baseTransform;
   state.baseMapCache = null;
   state.heatmapCache = null;
   state.dirty = true;
