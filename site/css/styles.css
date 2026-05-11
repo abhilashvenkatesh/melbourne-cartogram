@@ -1101,7 +1101,7 @@ canvas {
 
   .legend-overlay {
     right: 14px;
-    bottom: calc(env(safe-area-inset-bottom) + 96px);
+    bottom: calc(max(16px, env(safe-area-inset-bottom)) + 126px);
     min-width: 250px;
     max-width: calc(100vw - 28px);
   }
@@ -1125,7 +1125,7 @@ canvas {
 
   .map-zoom-controls {
     left: 14px;
-    bottom: calc(env(safe-area-inset-bottom) + 96px);
+    bottom: calc(max(16px, env(safe-area-inset-bottom)) + 126px);
     z-index: 5;
     transition: opacity 160ms ease, transform 160ms ease;
   }
@@ -1199,6 +1199,14 @@ canvas {
 
   .mobile-sheet.is-dragging {
     transition: none;
+  }
+
+  .mobile-sheet.is-collapsed {
+    left: 14px;
+    right: 14px;
+    bottom: calc(max(16px, env(safe-area-inset-bottom)) + 10px);
+    padding: 10px 14px 12px;
+    border-radius: 24px;
   }
 
   .mobile-sheet-toggle {
