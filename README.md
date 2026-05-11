@@ -112,6 +112,8 @@ Notes:
 
 Deployed via Vercel. Push to `main` to trigger a deploy. `vercel.json` sets `site/` as the output directory and adds a catch-all rewrite so deep-link URLs survive page reload.
 
+Google Analytics is injected during the GitHub Actions deploy. Set the repository variable `GA_MEASUREMENT_ID` to your GA4 measurement ID, for example `G-QK6YCRDZV8`. If the variable is not present, the workflow also accepts a repository secret with the same name.
+
 ## Project layout
 
 | Path | What it does |
