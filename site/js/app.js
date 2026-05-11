@@ -1871,7 +1871,7 @@ function drawMap(drawCtx, width, height) {
   const zoomFocusPoint = state.viewportScale > MIN_VIEWPORT_SCALE ? currentZoomFocusPoint() : null;
   const anchorScreen = zoomFocusPoint
     ? [width / 2, height / 2]
-    : state.showWarp && state.pinned && !state.isMobile
+    : state.showWarp && state.pinned
       ? state.pinnedScreen
       : null;
   const anchorWorldPoint = zoomFocusPoint || state.originPoint;
