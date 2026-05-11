@@ -214,7 +214,7 @@ function loadModePictograms() {
       state.dirty = true;
       requestDraw();
     };
-    image.src = new URL(`./assets/transport-pictograms/${filename}`, import.meta.url).toString();
+    image.src = new URL(`../assets/transport-pictograms/${filename}`, import.meta.url).toString();
     modePictograms.set(mode, image);
   }
 }
