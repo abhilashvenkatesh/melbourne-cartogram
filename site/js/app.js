@@ -932,8 +932,13 @@ function shortOriginLabel(label) {
   if (!label) return "";
   if (label === "My location") return label;
   const primary = label.split(",")[0].trim();
+  if (state.isMobile) {
+    const withoutNear = primary.replace(/^near\s+/i, "");
+    const firstRoad = withoutNear.split("/")[0].trim();
+    return firstRoad.length > 22 ? firstRoad.slice(0, 20).trimEnd() + "…" : firstRoad;
+  }
   const text = /^\d/.test(primary) ? primary : primary.toLowerCase().startsWith("near ") ? primary : `Near ${primary}`;
-  return state.isMobile && text.length > 32 ? text.slice(0, 30).trimEnd() + "…" : text;
+  return text.length > 32 ? text.slice(0, 30).trimEnd() + "…" : text;
 }
 
 function heatmapColor(minutes, alpha = 0.56) {
@@ -2269,7 +2274,7 @@ function roundRectPath(drawCtx, x, y, width, height, radius) {
 
 function currentOriginSummary(fallbackStationName = "Melbourne transit") {
   if (state.originLabel) return shortOriginLabel(state.originLabel);
-  return `Near ${fallbackStationName}`;
+  return shortOriginLabel(`Near ${fallbackStationName}`);
 }
 
 function exportShareImage() {
