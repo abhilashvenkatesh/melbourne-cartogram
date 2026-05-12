@@ -5,7 +5,7 @@ const WORKER_URL = new URL("./compute-worker.js", import.meta.url).toString();
 const DEFAULT_TRANSIT_TIME_MINUTES = 4;
 const DEFAULT_MAX_TIME_MINUTES = 60;
 const MIN_AREA_WEIGHT = 1;
-const MAX_AREA_WEIGHT = 2.67;
+const MAX_AREA_WEIGHT = 3.2;
 const MIN_VIEWPORT_SCALE = 1;
 const MAX_VIEWPORT_SCALE = 4;
 const VIEWPORT_ZOOM_STEP = 1.35;
@@ -30,8 +30,8 @@ const MOBILE_BOROUGH_LABEL_MIN_GAP = 20;
 const DESKTOP_PIN_TAP_SLOP = 6;
 const DESKTOP_PIN_HIT_RADIUS = 18;
 const HEATMAP_RESOLUTION_SCALE = 2;
-const HEATMAP_BLUR_PX = 7;
-const HEATMAP_ALPHA = 0.6;
+const HEATMAP_BLUR_PX = 9;
+const HEATMAP_ALPHA = 0.82;
 const WARP_INFLUENCE_RADIUS = 8;
 const WARP_SIGMA_CELLS = 3.4;
 const WARP_DISPLACEMENT_SCALE = 1.0;
@@ -1005,7 +1005,8 @@ function activeMapBounds() {
 function defaultMapCenter(bounds = activeMapBounds()) {
   if (!bounds) return [0, 0];
   const [minX, minY, maxX, maxY] = bounds;
-  return [(minX + maxX) / 2, (minY + maxY) / 2];
+  const yBias = state.isMobile ? 0.68 : 0.5;
+  return [(minX + maxX) / 2, minY + (maxY - minY) * yBias];
 }
 
 function pinMidpoint(a, b) {
@@ -1336,6 +1337,9 @@ function drawCityBasemap(
     });
   }
 
+  drawCtx.save();
+  traceLandMaskPath(drawCtx, projectPoint);
+  drawCtx.clip("evenodd");
   for (const route of activeRenderFeatures("routes")) {
     drawCtx.strokeStyle = route.color;
     drawCtx.lineWidth = ROUTE_LINE_WIDTH;
@@ -1346,6 +1350,7 @@ function drawCityBasemap(
       maxDepth: curveMaxDepth,
     });
   }
+  drawCtx.restore();
 
   if (includeBoroughBorders) {
     for (const borough of activeBoroughs()) {
@@ -1374,10 +1379,10 @@ function drawStations(drawCtx, projectPoint) {
     if (px < bMinX || px > bMaxX || py < bMinY || py > bMaxY) continue;
     const [sx, sy] = projectPoint(station.point);
     drawCtx.beginPath();
-    drawCtx.arc(sx, sy, 1.35, 0, Math.PI * 2);
+    drawCtx.arc(sx, sy, 1.05, 0, Math.PI * 2);
     drawCtx.fillStyle = "#ffffff";
     drawCtx.fill();
-    drawCtx.lineWidth = 0.55;
+    drawCtx.lineWidth = 0.4;
     drawCtx.strokeStyle = "#5a6e84";
     drawCtx.stroke();
   }
