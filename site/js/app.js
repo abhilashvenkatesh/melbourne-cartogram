@@ -1353,7 +1353,17 @@ function drawCityBasemap(
 }
 
 function drawStations(drawCtx, projectPoint) {
+  const bounds = activeMapBounds();
+  const [bMinX, bMinY, bMaxX, bMaxY] = bounds || [
+    -Infinity,
+    -Infinity,
+    Infinity,
+    Infinity,
+  ];
+
   for (const station of state.data.stations) {
+    const [px, py] = station.point;
+    if (px < bMinX || px > bMaxX || py < bMinY || py > bMaxY) continue;
     const [sx, sy] = projectPoint(station.point);
     drawCtx.beginPath();
     drawCtx.arc(sx, sy, 1.35, 0, Math.PI * 2);
