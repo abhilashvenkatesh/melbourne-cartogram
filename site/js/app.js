@@ -1402,21 +1402,24 @@ function doLabelBoxesOverlap(a, b, gap = 0) {
   );
 }
 
-function visibleBoroughLabels(drawCtx, projectPoint) {
+function visibleBoroughLabels(drawCtx, projectPoint, { compact = true } = {}) {
   const canvasBounds = drawCtx.canvas.getBoundingClientRect();
   const screenWidth = canvasBounds.width || drawCtx.canvas.width;
   const screenHeight = canvasBounds.height || drawCtx.canvas.height;
-  const maxLabels = Math.min(
-    activeBoroughs().length,
-    Math.round(MOBILE_BOROUGH_LABEL_BASE_LIMIT + (state.viewportScale - 1) * MOBILE_BOROUGH_LABEL_ZOOM_BONUS),
-  );
+  const maxLabels = compact
+    ? Math.min(
+        activeBoroughs().length,
+        Math.round(MOBILE_BOROUGH_LABEL_BASE_LIMIT + (state.viewportScale - 1) * MOBILE_BOROUGH_LABEL_ZOOM_BONUS),
+      )
+    : activeBoroughs().length;
+  const minGap = compact ? MOBILE_BOROUGH_LABEL_MIN_GAP : 6;
   const selectedBoxes = [];
   const labels = activeBoroughs()
     .map((borough, index) => {
       const [x, y] = projectPoint(borough.label);
       const metrics = drawCtx.measureText(borough.name);
       const width = metrics.width + 12;
-      const height = 16;
+      const height = compact ? 16 : 20;
       return {
         borough,
         index,
@@ -1437,7 +1440,7 @@ function visibleBoroughLabels(drawCtx, projectPoint) {
   const selectedLabels = [];
   for (const label of labels) {
     if (selectedLabels.length >= maxLabels) break;
-    if (selectedBoxes.some((box) => doLabelBoxesOverlap(label.box, box, MOBILE_BOROUGH_LABEL_MIN_GAP))) continue;
+    if (selectedBoxes.some((box) => doLabelBoxesOverlap(label.box, box, minGap))) continue;
     selectedLabels.push(label);
     selectedBoxes.push(label.box);
   }
@@ -1455,14 +1458,11 @@ function drawBoroughLabels(drawCtx, projectPoint, { compact = state.isMobile } =
   drawCtx.strokeStyle = "rgba(255,252,247,0.95)";
   drawCtx.lineWidth = compact ? 4.5 : 6;
   drawCtx.lineJoin = "round";
-  const labels = compact
-    ? visibleBoroughLabels(drawCtx, projectPoint)
-    : activeBoroughs().map((borough) => ({ borough, x: null, y: null }));
+  const labels = visibleBoroughLabels(drawCtx, projectPoint, { compact });
   for (const label of labels) {
     const borough = label.borough;
-    const [lx, ly] = label.x === null ? projectPoint(borough.label) : [label.x, label.y];
-    drawCtx.strokeText(borough.name, lx, ly);
-    drawCtx.fillText(borough.name, lx, ly);
+    drawCtx.strokeText(borough.name, label.x, label.y);
+    drawCtx.fillText(borough.name, label.x, label.y);
   }
 }
 
