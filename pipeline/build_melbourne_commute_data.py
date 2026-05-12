@@ -41,6 +41,7 @@ INTER_COMPLEX_WALK_PENALTY = 2.0
 DEFAULT_BOARD_WAIT = 4.0
 TRANSFER_PENALTY = 4.0
 INTER_COMPLEX_TRANSFER_PENALTY = 7.0
+GREATER_MELBOURNE_ONLY_LGAS = {"Cardinia", "Mornington Peninsula", "Yarra Ranges"}
 
 # PTV route types
 TRAIN_ROUTE_TYPES = {"400"}
@@ -198,6 +199,25 @@ def point_in_multipolygon(point: Point, multipolygon: MultiPolygon) -> bool:
     return any(point_in_polygon(point, polygon) for polygon in multipolygon)
 
 
+def split_polyline_to_mask(points: Sequence[Point], mask: MultiPolygon) -> List[List[Point]]:
+    clipped: List[List[Point]] = []
+    current: List[Point] = []
+
+    for point in points:
+        if point_in_multipolygon(point, mask):
+            current.append(point)
+            continue
+
+        if len(current) >= 2:
+            clipped.append(current)
+        current = []
+
+    if len(current) >= 2:
+        clipped.append(current)
+
+    return clipped
+
+
 def assemble_osm_ways_into_rings(way_coords_list: List[List[Point]]) -> List[Ring]:
     if not way_coords_list:
         return []
@@ -238,9 +258,10 @@ def assemble_osm_ways_into_rings(way_coords_list: List[List[Point]]) -> List[Rin
     return rings
 
 
-def extract_boroughs(payload: dict, lat0: float) -> Tuple[list, MultiPolygon]:
+def extract_boroughs(payload: dict, lat0: float) -> Tuple[list, MultiPolygon, MultiPolygon]:
     boroughs = []
     all_polygons: MultiPolygon = []
+    core_polygons: MultiPolygon = []
     for feature in payload["features"]:
         geometry = feature["geometry"]
         geom_type = geometry["type"]
@@ -263,6 +284,8 @@ def extract_boroughs(payload: dict, lat0: float) -> Tuple[list, MultiPolygon]:
         largest_polygon = max(multipolygon, key=lambda p: abs(ring_area(p[0])))
         raw_name = feature["properties"].get("name", "")
         name = raw_name.replace("City of ", "").replace("Shire of ", "").strip()
+        if name not in GREATER_MELBOURNE_ONLY_LGAS:
+            core_polygons.extend(multipolygon)
         boroughs.append(
             {
                 "name": name,
@@ -270,10 +293,13 @@ def extract_boroughs(payload: dict, lat0: float) -> Tuple[list, MultiPolygon]:
                 "polygons": [[round_path(ring) for ring in polygon] for polygon in multipolygon],
             }
         )
-    return boroughs, all_polygons
+    return boroughs, all_polygons, core_polygons
 
 
-def extract_parks(lat0: float, bbox: Tuple[float, float, float, float]) -> list:
+def extract_parks(
+    lat0: float,
+    bbox: Tuple[float, float, float, float],
+) -> list:
     if not PARKS_PATH.exists():
         return []
     payload = load_json(PARKS_PATH)
@@ -321,7 +347,10 @@ def extract_parks(lat0: float, bbox: Tuple[float, float, float, float]) -> list:
     return parks
 
 
-def extract_streets(lat0: float, bbox: Tuple[float, float, float, float]) -> list:
+def extract_streets(
+    lat0: float,
+    bbox: Tuple[float, float, float, float],
+) -> list:
     if not STREETS_PATH.exists():
         return []
     payload = load_json(STREETS_PATH)
@@ -474,10 +503,44 @@ def build_station_data(lat0: float) -> Tuple[list, Dict[str, int], Dict[str, str
     return stations, station_index_by_id, stop_to_complex
 
 
+def filter_stations_to_mask(
+    stations: list,
+    station_index_by_id: Dict[str, int],
+    stop_to_complex: Dict[str, str],
+    render_mask: MultiPolygon,
+) -> Tuple[list, Dict[str, int], Dict[str, str]]:
+    kept_stations = []
+    kept_ids = set()
+
+    for station in stations:
+        if not point_in_multipolygon(station["point"], render_mask):
+            continue
+        kept_ids.add(station["id"])
+        kept_stations.append(station)
+
+    kept_index_by_id = {
+        station["id"]: index
+        for index, station in enumerate(kept_stations)
+    }
+    kept_stop_to_complex = {
+        stop_id: complex_id
+        for stop_id, complex_id in stop_to_complex.items()
+        if complex_id in kept_ids
+    }
+
+    return kept_stations, kept_index_by_id, kept_stop_to_complex
+
+
+def mark_station_render_scopes(stations: list, core_mask: MultiPolygon) -> None:
+    for station in stations:
+        station["core"] = point_in_multipolygon(station["point"], core_mask)
+
+
 def build_routes_and_shapes(
     lat0: float,
     bbox: Tuple[float, float, float, float],
     frequent_bus_routes: set,
+    render_mask: MultiPolygon,
 ) -> Tuple[dict, list, dict]:
     route_styles: dict = {}
     trips_by_id: dict = {}
@@ -537,15 +600,16 @@ def build_routes_and_shapes(
             points = simplify_polyline(points, 90.0)
             if len(points) < 2 or not bbox_intersects(bounds_of_points(points), bbox):
                 continue
-            shapes.append(
-                {
-                    "routeId": route_id,
-                    "color": style["color"],
-                    "textColor": style["textColor"],
-                    "label": style["label"],
-                    "points": round_path(points),
-                }
-            )
+            for clipped in split_polyline_to_mask(points, render_mask):
+                shapes.append(
+                    {
+                        "routeId": route_id,
+                        "color": style["color"],
+                        "textColor": style["textColor"],
+                        "label": style["label"],
+                        "points": round_path(clipped),
+                    }
+                )
 
     return route_styles, shapes, trips_by_id
 
@@ -791,17 +855,20 @@ def main() -> None:
     lat0 = average_feature_latitude(borough_payload)
     print(f"Reference latitude: {lat0:.4f}")
 
-    boroughs, all_polygons = extract_boroughs(borough_payload, lat0)
+    boroughs, all_polygons, core_polygons = extract_boroughs(borough_payload, lat0)
     bbox = bounds_of_multipolygon(all_polygons)
+    core_bbox = bounds_of_multipolygon(core_polygons)
     print(f"Bounds: {bbox}, LGAs: {len(boroughs)}")
 
     print("Extracting parks...")
     parks = extract_parks(lat0, bbox)
-    print(f"  {len(parks)} parks")
+    core_parks = extract_parks(lat0, core_bbox)
+    print(f"  {len(core_parks)} core parks, {len(parks)} greater parks")
 
     print("Extracting streets...")
     streets = extract_streets(lat0, bbox)
-    print(f"  {len(streets)} streets")
+    core_streets = extract_streets(lat0, core_bbox)
+    print(f"  {len(core_streets)} core streets, {len(streets)} greater streets")
 
     print("Finding frequent bus routes...")
     frequent_bus_routes = find_frequent_bus_routes()
@@ -810,10 +877,30 @@ def main() -> None:
     print("Building station data...")
     stations, station_index_by_id, stop_to_complex = build_station_data(lat0)
     print(f"  {len(stations)} stations/stops total")
+    stations, station_index_by_id, stop_to_complex = filter_stations_to_mask(
+        stations,
+        station_index_by_id,
+        stop_to_complex,
+        all_polygons,
+    )
+    print(f"  {len(stations)} stations/stops inside Greater Melbourne land")
+    mark_station_render_scopes(stations, core_polygons)
+    print(f"  {sum(1 for station in stations if station['core'])} stations/stops inside core LGAs")
 
     print("Building routes and shapes...")
-    route_styles, route_shapes, trips_by_id = build_routes_and_shapes(lat0, bbox, frequent_bus_routes)
-    print(f"  {len(route_styles)} routes, {len(route_shapes)} shapes")
+    route_styles, route_shapes, trips_by_id = build_routes_and_shapes(
+        lat0,
+        bbox,
+        frequent_bus_routes,
+        all_polygons,
+    )
+    _core_route_styles, core_route_shapes, _core_trips_by_id = build_routes_and_shapes(
+        lat0,
+        core_bbox,
+        frequent_bus_routes,
+        core_polygons,
+    )
+    print(f"  {len(route_styles)} routes, {len(core_route_shapes)} core shapes, {len(route_shapes)} greater shapes")
 
     print("Computing route wait times...")
     route_waits = build_route_waits(trips_by_id)
@@ -847,13 +934,17 @@ def main() -> None:
         "boroughs": boroughs,
         "externalLand": [],
         "parks": parks,
+        "coreParks": core_parks,
         "streets": streets,
+        "coreStreets": core_streets,
         "routes": route_shapes,
+        "coreRoutes": core_route_shapes,
         "stations": [
             {
                 "id": station["id"],
                 "name": station["name"],
                 "point": round_point(station["point"]),
+                "core": station["core"],
                 "routes": sorted(station["routes"]),
             }
             for station in stations
@@ -872,7 +963,19 @@ def main() -> None:
     size_mb = SITE_DATA_PATH.stat().st_size / 1024 / 1024
     print(f"Wrote {SITE_DATA_PATH} ({size_mb:.1f} MB)")
 
-    render_keys = {"meta", "boroughs", "externalLand", "parks", "streets", "routes", "stations", "routeStyles"}
+    render_keys = {
+        "meta",
+        "boroughs",
+        "externalLand",
+        "parks",
+        "coreParks",
+        "streets",
+        "coreStreets",
+        "routes",
+        "coreRoutes",
+        "stations",
+        "routeStyles",
+    }
     compute_keys = {"routeStates", "stationStates", "routeWaits", "adjacency", "cells", "mask"}
     render_output = {key: value for key, value in output.items() if key in render_keys}
     compute_output = {key: value for key, value in output.items() if key in compute_keys}

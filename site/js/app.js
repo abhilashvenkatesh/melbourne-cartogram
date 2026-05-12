@@ -971,6 +971,13 @@ function activeBoroughs() {
   return state.data.boroughs.filter((borough) => !GREATER_MELBOURNE_ONLY_LGAS.has(borough.name));
 }
 
+function activeRenderFeatures(key) {
+  if (!state.data) return [];
+  if (state.showGreaterMelbourne) return state.data[key] || [];
+  const coreKey = `core${key[0].toUpperCase()}${key.slice(1)}`;
+  return state.data[coreKey] || state.data[key] || [];
+}
+
 function boundsOfPolygons(polygons) {
   let minX = Infinity;
   let minY = Infinity;
@@ -1309,7 +1316,7 @@ function drawCityBasemap(
 ) {
   fillLandMask(drawCtx, projectPoint);
 
-  for (const polygon of state.data.parks) {
+  for (const polygon of activeRenderFeatures("parks")) {
     drawPolygonPath(drawCtx, polygon, projectPoint);
     drawCtx.fillStyle = "#dbeacd";
     drawCtx.strokeStyle = "#a7c39b";
@@ -1318,7 +1325,7 @@ function drawCityBasemap(
     drawCtx.stroke();
   }
 
-  for (const street of state.data.streets) {
+  for (const street of activeRenderFeatures("streets")) {
     drawCtx.strokeStyle = "rgba(193, 202, 212, 0.92)";
     drawCtx.lineWidth = streetWidth(street.kind);
     drawCtx.lineCap = "round";
@@ -1329,7 +1336,7 @@ function drawCityBasemap(
     });
   }
 
-  for (const route of state.data.routes) {
+  for (const route of activeRenderFeatures("routes")) {
     drawCtx.strokeStyle = route.color;
     drawCtx.lineWidth = ROUTE_LINE_WIDTH;
     drawCtx.lineCap = "round";
@@ -1362,6 +1369,7 @@ function drawStations(drawCtx, projectPoint) {
   ];
 
   for (const station of state.data.stations) {
+    if (!state.showGreaterMelbourne && station.core === false) continue;
     const [px, py] = station.point;
     if (px < bMinX || px > bMaxX || py < bMinY || py > bMaxY) continue;
     const [sx, sy] = projectPoint(station.point);
